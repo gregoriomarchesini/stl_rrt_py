@@ -3,12 +3,18 @@ import cvxpy as cp
 a = cp.Variable(pos=True)
 b = cp.Variable(pos=True)
 
-b.value = 3.
-cost =- cp.log(a)
+a.value = 10
+b.value = 10
 
-problem = cp.Problem(cp.Minimize(cost))
-problem.solve()
+cost =  cp.exp( - (a - b) )
+
+
+constraints = [a ==4, b == 3]
+problem = cp.Problem(cp.Minimize(cost),constraints=constraints)
+problem.solve(verbose = True)
 
 print("Optimal value:", problem.value)
 print("Optimal a:", a.value)
 print("Optimal b:", b.value)
+
+print(type(a.value))

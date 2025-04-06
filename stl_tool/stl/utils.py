@@ -59,7 +59,7 @@ class TimeInterval :
         else :
             return True
         
-    def __contains__(self,time_int: "TimeInterval" | float) -> bool :
+    def __contains__(self,time_int: Union["TimeInterval",float]) -> bool :
         """subset relations self included in time_int  ::: time_int is subest of self """
         
 

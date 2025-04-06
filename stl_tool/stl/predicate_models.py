@@ -1,141 +1,77 @@
-# class GEQ2d(Predicate):
-#     """
-#     Greater than predicate in the form x[0] - b >= 0
-#     """
-#     def __init__(self, dim :int,bound:float):
-#         x_var = ca.MX.sym("x",2)
-#         t_var = ca.MX.sym("t")
+import numpy as np
 
-#         if dim not in [0,1]:
-#             raise ValueError("The dimension must be 0 or 1")
-#         self.bound = bound
+from .logic import Predicate
+from ..polytope import Polytope
+
+
+
+class GEQ(Predicate):
+    """
+    Greater than predicate in the form x[index] >= b
+    """
+    def __init__(self, dim :int, index:int, bound:float, name:str | None = None) :
+
+        a        = np.zeros(dim)
+        a[index] = 1.
+        b        = bound
         
-#         predicate_function = ca.Function("greater_than",[x_var,t_var],[x_var[dim] - bound])
-#         super().__init__(predicate_function)
-
-# class LEQ2d(Predicate):
-#     """
-#     Less than predicate in the form x[0] - b >= 0
-#     """
-#     def __init__(self, dim :int,bound:float):
-#         x_var = ca.MX.sym("x",2)
-#         t_var = ca.MX.sym("t")
-#         self.bound = bound
-
-#         if dim not in [0,1]:
-#             raise ValueError("The dimension must be 0 or 1")
+        # polytope is always defined as Ax<= b
+        polytope = Polytope(-a,-b)
+        super().__init__(polytope,name)
         
-#         predicate_function = ca.Function("less_than",[x_var,t_var],[bound - x_var[dim]])
-#         super().__init__(predicate_function)
 
-# class GEQ3d(Predicate):
-#     """
-#     Greater than predicate in the form x[0] - b >= 0
-#     """
-#     def __init__(self, dim :int,bound:float):
-#         x_var = ca.MX.sym("x",3)
-#         t_var = ca.MX.sym("t")
-#         self.bound = bound
+class LEQ2d(Predicate):
+    """
+    Less than predicate in the form x[index] <= b
+    """
+    def __init__(self, dim :int, index:int, bound:float, name:str | None = None) :
 
-#         if dim not in [0,1,2]:
-#             raise ValueError("The dimension must be 0, 1 or 2")
-        
-#         predicate_function = ca.Function("greater_than",[x_var,t_var],[x_var[dim] - bound])
-#         super().__init__(predicate_function)
+        a        = np.zeros(dim)
+        a[index] = 1.
+        b        = bound
 
-# class LEQ3d(Predicate):
-#     """
-#     Less than predicate in the form x[0] - b >= 0
-#     """
-#     def __init__(self, dim :int,bound:float):
-#         x_var = ca.MX.sym("x",3)
-#         t_var = ca.MX.sym("t")
-#         self.b= bound
-
-#         if dim not in [0,1,2]:
-#             raise ValueError("The dimension must be 0, 1 or 2")
-        
-#         predicate_function = ca.Function("less_than",[x_var,t_var],[bound - x_var[dim]])
-#         super().__init__(predicate_function)
-
-# def box_predicates(lower_bound:list, upper_bound:list, return_predicates_list = False):
-#     """
-#     Create box predicate to have a bounded region in the state space
-#     """
-    
-#     n_dims = len(lower_bound)
-
-#     if len(lower_bound) != n_dims or len(upper_bound) != n_dims:
-#         raise ValueError("The dimension of the bounds does not match the dimension of the state variable")
-    
-#     # create a subgle linear predicate for each bound in the form a_i x_i - b_i >=0
-#     predicates = []
-#     for i in range(n_dims):
-
-#         if lower_bound[i] > upper_bound[i]:
-#             raise ValueError("The lower bound must be less than or equal to the upper bound for each dimension. Mismatch found in dimension {}".format(i))
-        
-#         a = np.zeros(n_dims)
-#         a[i] = 1.
-#         b = lower_bound[i]
-#         predicates.append(LinearPredicate(a,b))
-
-#         a = np.zeros(n_dims)
-#         a[i] = -1.
-#         b = -upper_bound[i]
-#         predicates.append(LinearPredicate(a,b))
-
-    
-#     new_formula = Formula(root = AndOperator(*predicates))
-    
-#     if return_predicates_list:
-#         return new_formula, predicates
-#     else :
-#         return new_formula
-    
-
-# def box_predicate_2d(center:np.ndarray, width:float, return_predicates_list = False):
-#     """
-#     Create a box predicate in 2D
-#     """
-#     if len(center) != 2:
-#         raise ValueError("The center must be a 2D vector")
-    
-#     lower_bound = center - width/2
-#     upper_bound = center + width/2
-
-#     return box_predicates(lower_bound, upper_bound, return_predicates_list)
+        polytope = Polytope(a,b)
+        super().__init__(polytope,name)
 
 
-# def plot_predicates(predicates: list[Predicate], x_min: float, x_max: float, y_min: float, y_max: float, n_points:int = 100):
-#     """
-#     Plots regions defined by the predicates in the state space.
-#     """
 
-#     fig, ax = plt.subplots()
-#     x = np.linspace(x_min, x_max, n_points)
-#     y = np.linspace(y_min, y_max, n_points)
-    
-#     BIG_NUMBER = 10000
-#     X, Y = np.meshgrid(x, y)
-#     levels = [-BIG_NUMBER , 0, BIG_NUMBER ]
+class BoxPredicate(Predicate):
+    """
+    Polytope representing an n-dimensional box.
+    """
+
+    def __init__(self, n_dim: int, size: float, center: np.ndarray, name:str | None = None):
+        center = center.flatten()  # Ensure center is a 1D array
+        if center.shape[0] != n_dim:
+            raise ValueError(f"The center must be a {n_dim}D vector")
+
+        b = size / 2
+        A = np.vstack((np.eye(n_dim), -np.eye(n_dim)))
+        b_vec = b + A @ center  # Ensuring proper half-space representation
+
+        print(b_vec)
+
+        polytope = Polytope(A, b_vec)
+        print(polytope.is_open)
+        super().__init__(polytope,name)
+
+
+if __name__ == "__main__":
+
+    import matplotlib.pyplot as plt
+
+    # Example usage
+    dim = 3
+    index = 1
+    bound = 5.0
+
+    geq_pred = GEQ(dim, index, bound)
+    leq_pred = LEQ2d(dim, index, bound)
     
     
-#     Z = np.ones_like(X)*BIG_NUMBER 
+    geq_pred.plot()
 
-#     for predicate in predicates:
-#         for i in range(n_points):
-#             for j in range(n_points):
-#                 Z[i,j] = np.minimum(Z[i,j],np.asarray(predicate(np.array([X[i,j],Y[i,j]]),0)))
-   
-#     map = ax.contourf(X,Y,Z, levels = levels,cmap="binary")
-    
-#     ax.set_xlabel("x")
-#     ax.set_ylabel("y")
+    # box_pred = BoxPredicate(n_dim=3, size=2.0, center=np.array([1.0, 1.0, 1.0]))
+    # print("Box Predicate:", box_pred.polytope)
 
-#     ax.set_xlim([x_min, x_max])
-#     ax.set_ylim([y_min, y_max])
-
-#     plt.colorbar(map, label=" Black (True) | White (False)")
-#     plt.show()
-
+    plt.show()

@@ -3,10 +3,9 @@ from matplotlib import pyplot as plt
 import matplotlib.patches as patches
 from matplotlib import rcParams
 import numpy as np
-from stl_tool.stl.polytope import Polytope
+from stl_tool.polytope.polytope import Polytope
 from stl_tool.stl.utils import TimeInterval
 
-rcParams['text.usetex'] = True
 NodeID     = int
 BIG_NUMBER = 1E8
 
@@ -42,11 +41,16 @@ class PredicateNode(Node):
     """
     Predicate Node of the formula tree. It contains the predicate function that defines the barrier function of the node.
     """
-    def __init__(self, polytope: Polytope):
+    def __init__(self, polytope: Polytope, name:str | None = None) -> None:
 
         self.parent               : "OperatorNode" |None    = None
         self.polytope             : Polytope                = polytope
         Node.__init__(self)  
+        
+        if name is None:
+            self.name = "P_" + str(self.node_id)
+        else:
+            self.name = name
     
 
 class OperatorNode(Node) :
@@ -253,7 +257,7 @@ def deepcopy_predicate_node(node: Node) -> Node:
     """ Go down the tree and duplicate the poredicates which coudl be shared among different branches"""
 
     if isinstance(node, PredicateNode):
-        return PredicateNode(node.polytope)
+        return PredicateNode(node.polytope, name= node.name)
     
     else:
         if isinstance(node,UOp):
@@ -309,7 +313,7 @@ class Formula:
         elif isinstance(formula.root, AndOperator) :
             root_self = deepcopy_predicate_node(self.root)
             root_formula = formula.root
-            return Formula(root = AndOperator(*root_self.children,*root_formula.children))
+            return Formula(root = AndOperator(root_self,*root_formula.children))
         
         # case 3: conjunction of a formula with an AND operator as root for the other formula.
         # sol  : add the formula as a child of the AND operator of the self formula.
@@ -317,7 +321,7 @@ class Formula:
         elif isinstance(self.root, AndOperator):
             root_formula = deepcopy_predicate_node(formula.root)
             root_self    = self.root
-            return Formula(root = AndOperator(*root_self.children,*root_formula.children))
+            return Formula(root = AndOperator(*root_self.children,root_formula))
         
         # case 4: conjunction of two formulas with root given by other operators 
         # sol  : create a new formula with the AND operator as root and the two formulas as children.
@@ -338,6 +342,7 @@ class Formula:
     def __or__(self, formula : "Formula"):
         
         
+        
         if isinstance(formula.root, OrOperator)  and isinstance(self.root, OrOperator):
 
             root_self    = deepcopy_predicate_node(self.root)
@@ -346,24 +351,22 @@ class Formula:
             
             return formula
            
-
         elif isinstance(formula.root, OrOperator) :
             root_self = deepcopy_predicate_node(self.root)
-            formula.root.children += [root_self]
-            return formula
-        
+            root_formula = formula.root
+            return Formula(root = OrOperator(root_self,*root_formula.children))
         
         elif isinstance(self.root, OrOperator):
-            formula_root = deepcopy_predicate_node(formula.root)
-            self.root.children += [formula_root]
-            return self
+            root_formula = deepcopy_predicate_node(formula.root)
+            root_self    = self.root
+            return Formula(root = OrOperator(*root_self.children,root_formula))
         
+    
         else:
-        
             root_self    = deepcopy_predicate_node(self.root)
             root_formula = deepcopy_predicate_node(formula.root)
-
             new_formula  = Formula( root = OrOperator(root_self ,root_formula))
+            
             return new_formula
 
         
@@ -537,35 +540,180 @@ class Formula:
                 return max_children
         
         return recursive_max_num_children(self.root)    
-        
     
-    
-class Predicate(Formula) :
-    def __init__(self, polytope: Polytope):
-        super().__init__(root = PredicateNode(polytope))
 
+    def show_graph(self,debug=False):
+    
+        base_node_lateral_spacing = 6
+        base_node_vertical_spacing = 2
+        patch_radius = 0.2
+        fig,ax = plt.subplots()
+
+        # To track the bounds of the tree
+        x_min, x_max, y_min, y_max = [0.,0.,0.,0.]
+        temporal_color = "green"
+        predicate_color = "yellow"
+        logical_operator_color = "red"
+
+        patch_specs = dict(edgecolor='black', facecolor = temporal_color, alpha=0.4, zorder=1, lw = 3)
+        
+        def plot_node(node: Node, x, y):
+            if isinstance(node, PredicateNode):
+                if debug:
+                    ax.text(x, y, f"P\nnode_id: {node.node_id}", fontsize=12, ha='center', va='center')
+                else:
+                    ax.text(x, y, "P", fontsize=12, ha='center', va='center')
+                Rect = patches.Rectangle((x-patch_radius, y-patch_radius), width=2*patch_radius, height=2*patch_radius, **patch_specs)
+                ax.add_patch(Rect)
+
+            elif isinstance(node, AndOperator):
+                if debug:
+                    ax.text(x, y, f"AND\nnode_id: {node.node_id}", fontsize=12, ha='center', va='center')
+                else:
+                    ax.text(x, y, "AND", fontsize=12, ha='center', va='center')
+                circle = patches.Circle((x, y), radius=patch_radius, **patch_specs)
+                ax.add_patch(circle)
+
+            elif isinstance(node, UOp):
+                label = f"U_[{node.interval.a},{node.interval.b}]"
+                if debug:
+                    ax.text(x, y, f"{label}\nnode_id: {node.node_id}", fontsize=12, ha='center', va='center')
+                else:
+                    ax.text(x, y, label, fontsize=12, ha='center', va='center')
+                circle = patches.Circle((x, y), radius=patch_radius, **patch_specs)
+                ax.add_patch(circle)
+
+            elif isinstance(node, OrOperator):
+                if debug:
+                    ax.text(x, y, f"OR\nnode_id: {node.node_id}", fontsize=12, ha='center', va='center')
+                else:
+                    ax.text(x, y, "OR", fontsize=12, ha='center', va='center')
+                circle = patches.Circle((x, y), radius=patch_radius, **patch_specs)
+                ax.add_patch(circle)
+
+            elif isinstance(node, GOp):
+                label = f"G_[{node.interval.a},{node.interval.b}]"
+                if debug:
+                    ax.text(x, y, f"{label}\nnode_id: {node.node_id}", fontsize=12, ha='center', va='center')
+                else:
+                    ax.text(x, y, label, fontsize=12, ha='center', va='center')
+                circle = patches.Circle((x, y), radius=patch_radius, **patch_specs)
+                ax.add_patch(circle)
+
+            elif isinstance(node, FOp):
+                label = f"F_[{node.interval.a},{node.interval.b}]"
+                if debug:
+                    ax.text(x, y, f"{label}\nnode_id: {node.node_id}", fontsize=12, ha='center', va='center')
+                else:
+                    ax.text(x, y, label, fontsize=12, ha='center', va='center')
+                circle = patches.Circle((x, y), radius=patch_radius, **patch_specs)
+                ax.add_patch(circle)
+
+            elif isinstance(node, NotOperator):
+                if debug:
+                    ax.text(x, y, f"NOT\nnode_id: {node.node_id}", fontsize=12, ha='center', va='center')
+                else:
+                    ax.text(x, y, "NOT", fontsize=12, ha='center', va='center')
+                circle = patches.Circle((x, y), radius=patch_radius, **patch_specs)
+                ax.add_patch(circle)
+
+            else:
+                raise ValueError("Unknown node type")
+                    
+            # Track the x and y limits
+            nonlocal x_min, x_max, y_min, y_max
+            x_min, x_max = min(x_min, x), max(x_max, x)
+            y_min, y_max = min(y_min, y), max(y_max, y)
+
+        plot_node(self.root, 0, 0)
+
+        def plot_tree(node:Node, x, y,level = 0):
+            # Plot the current node
+            plot_node(node, x, y)
+            
+            # Recurse on children
+            if len(node.children) >=2: #(binary operator)
+                n_children = len(node.children)
+                for i, child in enumerate(node.children):
+                    # Calculate the child position
+                    child_x = x + (i - (n_children - 1) / 2) * base_node_lateral_spacing/(2*level+1)
+                    child_y = y - base_node_vertical_spacing
+
+                    # Draw a line from current node to child
+                    ax.plot([x, child_x], [y-patch_radius, child_y+patch_radius], 'k-', lw=1)
+
+                    # Recursive call to plot the subtree
+                    plot_tree(child, child_x, child_y, level+1)
+            
+            elif len(node.children) ==1 : # unary operator
+                child = node.children[0]
+                child_x = x
+                child_y = y - base_node_vertical_spacing
+                ax.plot([x, child_x], [y-patch_radius, child_y+patch_radius], 'k-', lw=1)
+                plot_tree(child, child_x, child_y, level+1)
+
+            else: #(predicate nodes do not have children. Nothing to do)
+                pass
+
+
+        plot_tree(self.root, 0, 0)
+        ax.set_aspect('equal')
+
+        ax.set_xticks([])
+        ax.set_yticks([])
+
+    
+
+    def enumerate_predicates(self) -> dict[str,Polytope] :
+        """
+        Get the predicates of the formula
+        """
+    
+        def recursive_get_predicates(node: Node):
+            if isinstance(node, PredicateNode):
+                return {node.name: node.polytope}
+            else:
+                predicates = {}
+                for child in node.children:
+                    predicates.update(recursive_get_predicates(child))
+                return predicates
+
+        return recursive_get_predicates(self.root)
+
+        
+class Predicate(Formula) :
+    def __init__(self, polytope: Polytope, name: str | None = None) -> None:
+        self.name = name
+        super().__init__(root = PredicateNode(polytope,name))
+
+    def plot(self,*args, **kwargs):
+        """
+        Plot the predicate in the state space
+        """
+        root : PredicateNode = self.root # explicit call
+        root.polytope.plot(*args, **kwargs)
 
 
 def get_type_and_polytopic_predicate(formula : Formula ) -> tuple[str,Polytope] :
 
-    if not isinstance(formula,"Formula"): 
+    if not isinstance(formula,Formula): 
         raise ValueError("The formula must be of type Formula")
  
-    root_node = formula.root
-    if root_node == "G":
+    root_node : Node = formula.root
+    if isinstance(root_node,GOp):
         if isinstance(root_node.children[0],PredicateNode):
             return "G", root_node.children[0].polytope
     
-    if root_node == "F":
+    if isinstance(root_node,FOp):
         if isinstance(root_node.children[0],PredicateNode):
             return "F", root_node.children[0].polytope
     
-    if root_node == "G":
+    if isinstance(root_node,GOp):
         if isinstance(root_node.children[0],FOp):
             if isinstance(root_node.children[0].children[0],PredicateNode):
                 return "GF", root_node.children[0].children[0].polytope
     
-    if root_node == "F":
+    if isinstance(root_node,FOp):
         if isinstance(root_node.children[0],GOp):
             if isinstance(root_node.children[0].children[0],PredicateNode):
                 return "FG", root_node.children[0].children[0].polytope
@@ -574,127 +722,6 @@ def get_type_and_polytopic_predicate(formula : Formula ) -> tuple[str,Polytope] 
 
     
 
-def stl_graph(formula, debug=False):
-    
-    base_node_lateral_spacing = 6
-    base_node_vertical_spacing = 2
-    patch_radius = 0.2
-    fig,ax = plt.subplots()
-
-    # To track the bounds of the tree
-    x_min, x_max, y_min, y_max = [0.,0.,0.,0.]
-    temporal_color = "green"
-    predicate_color = "yellow"
-    logical_operator_color = "red"
-
-    patch_specs = dict(edgecolor='black', facecolor = temporal_color, alpha=0.4, zorder=1, lw = 3)
-    
-    def plot_node(node: Node, x, y):
-
-        if isinstance(node, PredicateNode):
-            if debug:
-                ax.text(x, y, rf"$P$" + "\n" + rf"node\_id:{node.node_id}", fontsize=12, ha='center', va='center')
-            else:
-                ax.text(x, y, r"$P$", fontsize=12, ha='center', va='center')
-            Rect = patches.Rectangle((x-patch_radius, y-patch_radius), width=2*patch_radius, height=2*patch_radius, **patch_specs)
-            ax.add_patch(Rect)
-
-        elif isinstance(node, AndOperator):
-            if debug:
-                ax.text(x, y, rf"$\land$ " + "\n" + rf" node\_id:{node.node_id}", fontsize=12, ha='center', va='center')
-            else:
-                ax.text(x, y, r"$\land$", fontsize=12, ha='center', va='center')
-            circle = patches.Circle((x, y), radius=patch_radius, **patch_specs )
-            ax.add_patch(circle)
-
-        elif isinstance(node, UOp):
-            if debug:
-                ax.text(x, y, rf"$U_{{{node.interval.a},{node.interval.b}}}$ " + "\n" + rf" node\_id:{node.node_id}", fontsize=12, ha='center', va='center')
-            else:
-                ax.text(x, y, rf"$U_{{{node.interval.a},{node.interval.b}}}$", fontsize=12, ha='center', va='center')
-            circle = patches.Circle((x, y), radius=patch_radius, **patch_specs)
-            ax.add_patch(circle)
-
-        elif isinstance(node, OrOperator):
-            if debug:
-                ax.text(x, y, rf"$\lor$  " + "\n" + rf" node\_id:{node.node_id}", fontsize=12, ha='center', va='center')
-            else:
-                ax.text(x, y, r"$\lor$", fontsize=12, ha='center', va='center')
-            circle = patches.Circle((x, y), radius=patch_radius, **patch_specs)
-            ax.add_patch(circle)
-
-        elif isinstance(node, GOp):
-            if debug:
-                ax.text(x, y, fr"$G_{[{node.interval.a},{node.interval.b}]}$" + "\n" + fr"node\_id: {node.node_id}",
-                        fontsize=12, ha='center', va='center')
-            else:
-                ax.text(x, y, fr"$G_{{{node.interval.a},{node.interval.b}}}$", fontsize=12, ha='center', va='center')
-
-            circle = patches.Circle((x, y), radius=patch_radius, **patch_specs)
-            ax.add_patch(circle)
-
-        elif isinstance(node, FOp):
-            if debug:
-                ax.text(x, y, fr"$F_{[{node.interval.a},{node.interval.b}]}$" + "\n" + fr"node\_id: {node.node_id}",
-                        fontsize=12, ha='center', va='center')
-            else:
-                ax.text(x, y, fr"$F_{{{node.interval.a},{node.interval.b}}}$", fontsize=12, ha='center', va='center')
-
-            circle = patches.Circle((x, y), radius=patch_radius, **patch_specs)
-            ax.add_patch(circle)
-
-        elif isinstance(node, NotOperator):
-            if debug:
-                ax.text(x, y, r"$\neg$" + "\n" + rf" node\_id:{node.node_id}", fontsize=12, ha='center', va='center')
-            else:
-                ax.text(x, y, r"$\neg$", fontsize=12, ha='center', va='center')
-            circle = patches.Circle((x, y), radius=patch_radius, **patch_specs)
-            ax.add_patch(circle)
-
-        else:
-            raise ValueError("Unknown node type")
-                
-        # Track the x and y limits
-        nonlocal x_min, x_max, y_min, y_max
-        x_min, x_max = min(x_min, x), max(x_max, x)
-        y_min, y_max = min(y_min, y), max(y_max, y)
-
-    plot_node(formula.root, 0, 0)
-
-    def plot_tree(node:Node, x, y,level = 0):
-        # Plot the current node
-        plot_node(node, x, y)
-        
-        # Recurse on children
-        if len(node.children) >=2: #(binary operator)
-            n_children = len(node.children)
-            for i, child in enumerate(node.children):
-                # Calculate the child position
-                child_x = x + (i - (n_children - 1) / 2) * base_node_lateral_spacing/(2*level+1)
-                child_y = y - base_node_vertical_spacing
-
-                # Draw a line from current node to child
-                ax.plot([x, child_x], [y-patch_radius, child_y+patch_radius], 'k-', lw=1)
-
-                # Recursive call to plot the subtree
-                plot_tree(child, child_x, child_y, level+1)
-        
-        elif len(node.children) ==1 : # unary operator
-            child = node.children[0]
-            child_x = x
-            child_y = y - base_node_vertical_spacing
-            ax.plot([x, child_x], [y-patch_radius, child_y+patch_radius], 'k-', lw=1)
-            plot_tree(child, child_x, child_y, level+1)
-
-        else: #(predicate nodes do not have children. Nothing to do)
-            pass
-
-
-    plot_tree(formula.root, 0, 0)
-    ax.set_aspect('equal')
-
-    ax.set_xticks([])
-    ax.set_yticks([])
 
 
 

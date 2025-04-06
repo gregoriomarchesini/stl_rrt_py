@@ -1,17 +1,15 @@
-from stl_tool.stl.polytope import Polytope
+from stl_tool.polytope.polytope import Polytope
 import numpy as np
+from matplotlib import pyplot as plt
 
-A = np.array([[1, 0], [0, 1], [-1, 0], [0, -1]])
-b = np.array([1, 1, 0, 0])
+
+A = np.array([[1, 0,1.], [0, 1, 2.], [-1, 0,3.], [4,0, -1]])
+b = np.array([1, 1, 1, 1])
 
 polytope = Polytope(A, b)
+fig,ax   = plt.subplots(figsize=(8, 8))
 
-polytope.get_V_representation()
-print(polytope.get_V_representation())
+polytope.plot(ax = ax,alpha=0.5, color='blue')
 
-a = np.random.rand(2,4)
-b = np.random.rand(2,4)
 
-print(np.vstack((a,b)))
-
-print({2.3,2.3})
+plt.show()

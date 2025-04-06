@@ -2,12 +2,23 @@ import numpy as np
 import cdd
 import matplotlib.pyplot as plt
 from scipy.spatial import ConvexHull
+from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 
 """This file was originally developed by Mikael Johansson and is part of the openMPC library"""
 
 class Polytope:
     def __init__(self, A, b):
         # Normalize the polytope inequalities to the form a^Tx <= 1
+
+
+
+
+        # # centering the polytope 
+        # if not np.all(b >= 0.) :
+        #     self.center = - np.pinv(A) @ b
+        # else:
+        #     self.center = np.zeros(A.shape[1])
+
         A, b = self.normalize(A, b)
         
         # Ensure that b is a 1D array
@@ -17,9 +28,16 @@ class Polytope:
         self.b = b
 
         # Convert A and b into CDDlib format (H-representation)
-        mat = np.hstack([b.reshape(-1, 1), -A])
+        mat          = np.hstack([b.reshape(-1, 1), -A])
         self.cdd_mat = cdd.matrix_from_array(mat, rep_type=cdd.RepType.INEQUALITY)
-        self.poly = cdd.polyhedron_from_matrix(self.cdd_mat)
+        self.poly    = cdd.polyhedron_from_matrix(self.cdd_mat)
+        
+        
+        self._is_open  :bool         = None
+        self._vertices :np.ndarray   = None
+        self._rays     :np.ndarray   = None
+
+        
 
     @property
     def num_hyperplanes(self):
@@ -35,6 +53,24 @@ class Polytope:
         """
         return self.A.shape[1]
     
+    @property
+    def is_open(self) -> bool:
+        if self._is_open is None: # after finding the v representaiton you can know if it open
+            self._get_V_representation()
+        
+        return self._is_open
+
+    @property
+    def vertices(self)-> np.ndarray:
+        if self._vertices is None:
+            self._get_V_representation()
+        return self._vertices
+    
+    @property
+    def rays(self) -> np.ndarray:
+        if self._rays is None:
+            self._get_V_representation()
+        return self._rays
 
     def normalize(self, A, b):
         """
@@ -54,10 +90,12 @@ class Polytope:
         if A.shape[0] != b.shape[0]:
             raise ValueError(f"Dimension mismatch: A has {A.shape[0]} rows, but b has {b.shape[0]} elements.")
         
+        
         # Avoid division by zero
-        b_norm = np.where(b == 0, 1, b)  # Use 1 to avoid division by zero
-        A_normalized = A / b_norm[:, np.newaxis]
-        b_normalized = np.ones_like(b)
+        b_norm       = np.where(b == 0, 1, b)  # Use 1 to avoid division by zero
+        A_normalized = A/np.abs(b_norm[:, np.newaxis])
+        b_normalized = b/np.abs(b_norm)
+
         return A_normalized, b_normalized
 
     # Other methods (plot, projection, intersect, etc.) remain unchanged
@@ -93,20 +131,41 @@ class Polytope:
         return repr_str
 
 
-    def get_V_representation(self):
+    def _get_V_representation(self):
         """
         Get the vertices (V-representation) of the polytope.
         """
-        generators = cdd.copy_generators(self.poly)
-        vertices = np.array(generators.array)[:, 1:]  # Skip the first column (homogenizing coordinate)
-        return vertices
+        generators_lib = cdd.copy_generators(self.poly)
+        generators     = np.array(generators_lib.array)
+        linearities    = np.array(list(generators_lib.lin_set)) # It tells which rays are allowed to be also negative (https://people.inf.ethz.ch/fukudak/cdd_home/cddlibman2021.pdf) pp. 4
+        print(generators_lib)
+        
+        vertices_indices = generators[:,0] == 1. # vertices are only the generators with 1 in the first column (https://people.inf.ethz.ch/fukudak/cdd_home/cddlibman2021.pdf) pp. 4
+        
+        vertices      = generators[vertices_indices, 1:]   # Skip the first column (homogenizing coordinate)
+        rays          = generators[~vertices_indices, 1:]  # Skip the first column (homogenizing coordinate)
+        
+        if len(linearities) :
+            inverted_rays = -generators[linearities,1:]        # these are the rays that should be also considered in the oppositive direction
+            rays          = np.vstack((rays, inverted_rays))   # Add the inverted rays to the rays list
 
+        # Determine if the polytope is open or closed
+        if len(rays) > 0:
+            self._is_open = True # not all generators are vertices (some of them are rays indeed)
+        else :
+            self._is_open = False
+        
+        # cache vertices and rays to save computation
+        self._vertices = vertices
+        self._rays     = rays
+        
 
     def volume(self):
         """
         Compute the volume of the polytope. Handles 1D intervals separately.
         """
-        vertices = self.get_V_representation()
+        
+        vertices = self.vertices
 
         # If there are no vertices, the volume is zero
         if len(vertices) == 0:
@@ -138,29 +197,65 @@ class Polytope:
             showVertices: Boolean, whether to show the vertices as points.
         """
         # Get vertices for plotting
-        vertices = self.get_V_representation()
+        if not self.is_open:
+            vertices = self.vertices
+        else:
+            big_number = 10000
+            vertices   = np.vstack(( self.vertices, self.vertices + big_number*self.rays))
 
         if len(vertices) == 0:
             return  # Nothing to plot if no vertices
 
-        hull = ConvexHull(vertices)
-        hull_vertices = vertices[hull.vertices]
+        vertices = np.array(vertices)
+        dim = vertices.shape[1]
 
+        if dim > 3:
+            raise ValueError("Cannot plot polytopes with more than 3 dimensions.")
+
+         # If no axis is provided, create a new figure
         if ax is None:
-            ax = plt.gca()
+            fig = plt.figure()
+            if dim == 3:
+                ax = fig.add_subplot(111, projection='3d')  # Ensure 3D projection
+            else:
+                ax = fig.add_subplot(111)
+        else:
+            # If the provided axis is 2D but the polytope is 3D, convert it to 3D
+            if dim == 3 and not hasattr(ax, "get_proj"):
+                fig = ax.figure  # Get the current figure
+                fig.delaxes(ax)  # Remove the old 2D axis
+                ax = fig.add_subplot(111, projection='3d')  # Replace with a 3D axis
 
-        if edgecolor is None:
-            edgecolor = color  # Use same color for edges if edgecolor is not specified
+        try:
+            hull = ConvexHull(vertices)
+            hull_vertices = vertices[hull.vertices]
+        except:
+            hull_vertices = vertices  # Fallback to raw vertices if hull fails
 
-        ax.plot(np.append(hull_vertices[:, 0], hull_vertices[0, 0]),
-                np.append(hull_vertices[:, 1], hull_vertices[0, 1]),
-                color=edgecolor, linestyle=linestyle)
+        if dim == 2:
+            # 2D Polytope Plotting
+            ax.plot(np.append(hull_vertices[:, 0], hull_vertices[0, 0]),
+                    np.append(hull_vertices[:, 1], hull_vertices[0, 1]),
+                    color=edgecolor, linestyle=linestyle)
 
-        ax.fill(hull_vertices[:, 0], hull_vertices[:, 1], color=color, alpha=alpha)
+            ax.fill(hull_vertices[:, 0], hull_vertices[:, 1], color=color, alpha=alpha)
 
-        if showVertices:
-            ax.plot(hull_vertices[:, 0], hull_vertices[:, 1], 'ro')
+            if showVertices:
+                ax.plot(hull_vertices[:, 0], hull_vertices[:, 1], 'ro')
 
+        elif dim == 3:
+            # 3D Polyhedron Plotting
+            faces = [hull.simplices[i] for i in range(len(hull.simplices))]
+            poly3d = [[vertices[i] for i in face] for face in faces]
+            ax.add_collection(Poly3DCollection(poly3d, facecolors=color, linewidths=1, edgecolors=edgecolor, alpha=alpha))
+
+            if hasattr(ax, "set_zlabel"):
+                ax.set_zlabel("Z")
+
+        ax.set_xlabel("X")
+        ax.set_ylabel("Y")
+
+        return ax
 
     def remove_redundancies(self):
         """
@@ -274,3 +369,77 @@ class Polytope:
 
         # Compare the sorted arrays with a tolerance
         return (self_sorted.shape == other_sorted.shape) and np.allclose(self_sorted, other_sorted, atol=tol)
+    
+
+class Box2d(Polytope):
+
+    def __init__(self, x:float, y:float, w:float, h:float) -> None:
+        """
+        Args:
+            x : float
+                x coordinate of the box
+            y : float
+                y coordinate of the box
+            w : float
+                width of the box
+            h : float
+                height of the box
+
+        """
+        self.x = x
+        self.y = y
+        self.w = w
+        self.h = h
+        super().__init__(np.array([[1, 0], [0, 1], [-1, 0], [0, -1]]), np.array([x + w / 2, y + h / 2, -x + w / 2, -y + h / 2]))
+
+class Box3d(Polytope):
+
+    def __init__(self, x:float, y:float, z:float, w:float, h:float, d:float) -> None:
+        """
+        Args:
+            x : float
+                x coordinate of the box
+            y : float
+                y coordinate of the box
+            z : float
+                z coordinate of the box
+            w : float
+                width of the box
+            h : float
+                height of the box
+            d : float
+                depth of the box
+
+        """
+        self.x = x
+        self.y = y
+        self.z = z
+        self.w = w
+        self.h = h
+        self.d = d
+        super().__init__(np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1], [-1, 0, 0], [0, -1, 0], [0, 0, -1]]), np.array([x + w / 2, y + h / 2, z + d / 2, -x + w / 2, -y + h / 2, -z + d / 2]))
+
+
+if __name__ == "__main__":
+    
+    
+    A = np.array([[-1., 0],[0.,-1]])
+    b = np.array([1.,1.])
+
+    polytope = Polytope(A, b)
+    vertices = polytope.vertices
+
+    print(vertices)
+    print(polytope.is_open)
+    print(polytope.rays)
+    
+
+    fig,ax = plt.subplots()
+    ax.set_xlim(-2, 2)
+    ax.set_ylim(-2, 2)
+
+    print("Vertices of the polytope:")
+    print(vertices)
+    polytope.plot()
+
+    plt.show()
