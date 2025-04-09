@@ -9,7 +9,6 @@ import numpy as np
 box_predicate = BoxPredicate(n_dim=2, size = 3, center = np.array([0, 0]))
 
 
-
 # fig,ax = plt.subplots(figsize=(8, 8))
 
 bax = box_predicate.plot(alpha = 0.3)

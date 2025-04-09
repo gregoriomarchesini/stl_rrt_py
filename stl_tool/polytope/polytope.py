@@ -34,8 +34,8 @@ class Polytope:
         
         
         self._is_open  :bool         = None
-        self._vertices :np.ndarray   = None
-        self._rays     :np.ndarray   = None
+        self._vertices :np.ndarray   = None  # vertices are enumarated along the rows
+        self._rays     :np.ndarray   = None  # rays are enumarated along the rows
 
         
 
@@ -138,12 +138,11 @@ class Polytope:
         generators_lib = cdd.copy_generators(self.poly)
         generators     = np.array(generators_lib.array)
         linearities    = np.array(list(generators_lib.lin_set)) # It tells which rays are allowed to be also negative (https://people.inf.ethz.ch/fukudak/cdd_home/cddlibman2021.pdf) pp. 4
-        print(generators_lib)
         
         vertices_indices = generators[:,0] == 1. # vertices are only the generators with 1 in the first column (https://people.inf.ethz.ch/fukudak/cdd_home/cddlibman2021.pdf) pp. 4
         
-        vertices      = generators[vertices_indices, 1:]   # Skip the first column (homogenizing coordinate)
-        rays          = generators[~vertices_indices, 1:]  # Skip the first column (homogenizing coordinate)
+        vertices      = generators[vertices_indices, 1:]   # Skip the first column (homogenizing coordinate) # vertices are returns a 2d array where vertices are enumareted aloing the rows
+        rays          = generators[~vertices_indices, 1:]  # Skip the first column (homogenizing coordinate) # rays are returns a 2d array where rays are enumareted along the rows
         
         if len(linearities) :
             inverted_rays = -generators[linearities,1:]        # these are the rays that should be also considered in the oppositive direction
@@ -345,6 +344,40 @@ class Polytope:
         # Check if Ax <= b holds for the point x
         return np.all(np.dot(self.A, x) <= self.b + tol)
 
+    def sample_random(self, num_samples=1):
+        """
+        Returns array of random samples in shape [dim, num_samples].
+        For each sample:
+        - Selects 3 random vertices
+        - Takes a convex combination using Dirichlet distribution
+        - Adds a random non-negative linear combination of rays
+        """
+
+        vertices = self.vertices.T  # shape [dim, num_vertices]
+        rays = self.rays.T          # shape [dim, num_rays]
+        dim = vertices.shape[0]
+
+        samples = np.zeros((dim, num_samples))
+
+        for i in range(num_samples):
+            # Choose 3 distinct random vertices
+            idx = np.random.choice(vertices.shape[1], size=3, replace=False)
+            chosen_vertices = vertices[:, idx]  # shape [dim, 3]
+
+            # Dirichlet distribution gives a convex combination (sum = 1)
+            weights = np.random.dirichlet(alpha=np.ones(3))  # shape [3]
+
+            # Convex combination
+            point = chosen_vertices @ weights  # shape [dim]
+
+            # Add a random combination of rays
+            if rays.shape[1] > 0:
+                ray_weights = np.random.rand(rays.shape[1]) * 1e5
+                point += rays @ ray_weights  # shift point along rays
+
+            samples[:, i] = point
+
+        return samples
 
     
     def __eq__(self, other, tol=1e-7):
@@ -423,23 +456,29 @@ class Box3d(Polytope):
 if __name__ == "__main__":
     
     
-    A = np.array([[-1., 0],[0.,-1]])
-    b = np.array([1.,1.])
+    # A = np.array([[-1., 0],[0.,-1]])
+    # b = np.array([1.,1.])
 
-    polytope = Polytope(A, b)
-    vertices = polytope.vertices
+    # polytope = Polytope(A, b)
+    # vertices = polytope.vertices
 
-    print(vertices)
-    print(polytope.is_open)
-    print(polytope.rays)
+    # print(vertices)
+    # print(polytope.is_open)
+    # print(polytope.rays)
     
 
     fig,ax = plt.subplots()
     ax.set_xlim(-2, 2)
     ax.set_ylim(-2, 2)
 
-    print("Vertices of the polytope:")
-    print(vertices)
-    polytope.plot()
+    # print("Vertices of the polytope:")
+    # print(vertices)
+    # polytope.plot()
+
+    box = Box2d(0, 0, 1, 1)
+    box.plot(ax=ax, color='red', alpha=0.5)
+    samples = box.sample_random(2000)
+    # scatter
+    ax.scatter(samples[0], samples[1], color='blue', alpha=0.5)
 
     plt.show()

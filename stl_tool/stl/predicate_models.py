@@ -49,10 +49,8 @@ class BoxPredicate(Predicate):
         A = np.vstack((np.eye(n_dim), -np.eye(n_dim)))
         b_vec = b + A @ center  # Ensuring proper half-space representation
 
-        print(b_vec)
 
         polytope = Polytope(A, b_vec)
-        print(polytope.is_open)
         super().__init__(polytope,name)
 
 

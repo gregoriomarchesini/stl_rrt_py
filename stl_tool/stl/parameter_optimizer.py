@@ -15,28 +15,33 @@ class GammaFun:
     def __init__(self):
         
 
-        self.alpha_var   : cp.Variable =  cp.Variable(pos=True)
-        self.beta_var    : cp.Variable =  cp.Variable(pos=True)
-        self.gamma_0_var : cp.Variable =  cp.Variable(pos=True)
+        self.alpha_var   : cp.Variable =  cp.Variable(nonneg=True)
+        self.beta_var    : cp.Variable =  cp.Variable(nonneg=True)
+        self.gamma_0_var : cp.Variable =  cp.Variable(nonneg=True)
         self.r_var       : cp.Variable =  cp.Variable(pos=True)
-
-        self._switch_times_already_resolved : bool = False
-    
 
     @property
     def alpha(self) -> float:
+        if self.alpha_var.value is None:
+            raise ValueError("Alpha variable has not been set yet.")
         return self.alpha_var.value
     
     @property
     def beta(self) -> float:
+        if self.beta_var.value is None:
+            raise ValueError("Beta variable has not been set yet.")
         return self.beta_var.value
     
     @property
     def gamma_0(self) -> float:
+        if self.gamma_0_var.value is None:
+            raise ValueError("Gamma_0 variable has not been set yet.")
         return self.gamma_0_var.value
     
     @property
     def r(self) -> float:
+        if self.r_var.value is None:
+            raise ValueError("R variable has not been set yet.")
         return self.r_var.value
     
     @alpha.setter
@@ -52,16 +57,30 @@ class GammaFun:
     def r(self, value):
         self.r_var.value = value
 
-    @property
-    def switch_times_already_resolved(self) -> bool:
-        return self._switch_times_already_resolved
+    def upsilon(self,t:float)-> int :
+        t = float(t)
+
+        if t >= 0. and t < self.alpha:
+            return 1
+        elif t >= self.alpha and t <= self.beta:
+            return 2
+        else :
+            raise ValueError("The given time time is outside the range [0,beta].")
+            
+        
 
 
     def _add_(self,polytope: Polytope) :
         return BarrierFunction(polytope = polytope, gamma = self)
 
-
 class BarrierFunction :
+    """
+    Note that polytope representaton in cddlib is given as Ax<= b
+    But in the paper we have Dx + c >= 0 and thus -Dx<= c.
+
+    So In all the equations we get D = -A and c= b
+    
+    """
     def __init__(self, polytope: Polytope, gamma: GammaFun):
         
         self._gamma      = gamma
@@ -85,35 +104,33 @@ class BarrierFunction :
         if not isinstance(value, str):
             raise ValueError("Task type must be a string.")
 
-    def E1(self):
+    
+    def D(self):
+        D = - self.polytope.A
+        return D
+    
+    def e1(self):
         
-        A = - self.polytope.A  # this is because a polytope is defined as Ax<= b, but forward invariance properties are defined for a polytope in the form Ax>= b
-        e_vec = [- self.gamma.gamma_0_var/self.gamma.alpha for i in range(self.polytope.num_hyperplanes)]
-        e_vec = cp.vstack(e_vec)
-        E     = cp.hstack([A, e_vec])
-        return E
+        e_vec = - self.gamma.gamma_0_var/self.gamma.alpha *np.ones(self.polytope.num_hyperplanes) 
+        e_vec = cp.hstack(e_vec)
+        return e_vec
     
-    def E2(self):
-        A = - self.polytope.A  # this is because a polytope is defined as Ax<= b, but forward invariance properties are defined for a polytope in the form Ax>= b
-        e_vec = [0 for i in range(self.polytope.num_hyperplanes)]
-        e_vec = cp.vstack(e_vec)
-        E     = cp.hstack([A , e_vec])
-        return E
+    def e2(self):
+        e_vec = np.zeros(self.polytope.num_hyperplanes)
+        e_vec = cp.hstack(e_vec)
+        return e_vec
     
-    def c1(self) :
-        c_vec = cp.vstack([ self.gamma.gamma_0  - self.gamma.r_var for i in range(self.polytope.num_hyperplanes)])
-        return c_vec
+    def g1(self) :
+        g_vec = (self.gamma.gamma_0_var  - self.gamma.r_var)*np.ones(self.polytope.num_hyperplanes) 
+        return g_vec
     
-    def c2(self) :
-        c_vec = cp.vstack([  - self.gamma.r_var for i in range(self.polytope.num_hyperplanes)])
-        return c_vec
+    def g2(self) :
+        g_vec = -self.gamma.r_var *np.ones(self.polytope.num_hyperplanes) 
+        return g_vec
 
-    def D(self) :
-        return self.polytope.A
+    def c(self) :
+        return self.polytope.b
     
-    def b_vec(self) :
-        b_vec = self.polytope.b
-
     def gamma_var_value(self,t):
 
         if t <0 :
@@ -127,17 +144,6 @@ class BarrierFunction :
         if t <= self.gamma.alpha :
             return (self.gamma.gamma_0_var- self.gamma.r_var) + self.gamma.gamma_0_var/self.gamma.alpha * t
 
-
-
-def active_barriers_map(t: float, list_of_barriers: list[BarrierFunction]) -> list[int]:
-    """
-    Returns the list of active barriers at time t.
-    """
-    active_barriers = []
-    for i, barrier in enumerate(list_of_barriers):
-        if barrier.gamma.beta > t:
-            active_barriers.append(i)
-    return active_barriers
 
 
 class TasksOptimizer:
@@ -155,7 +161,7 @@ class TasksOptimizer:
 
     def _create_barriers_and_time_constraints(self) :
 
-        #! create better initial guesses
+        #! create better initial time guesses
         barriers         : list[BarrierFunction]    = []
         time_constraints : list[cp.Constraint]      = []
 
@@ -269,10 +275,6 @@ class TasksOptimizer:
                 gamma.alpha_var.value =  time_interval_prime.get_sample() + time_interval.b
                 gamma.beta_var.value  =  gamma.alpha_var.value 
 
-        for barrier in barriers:  
-            print("Barrier alpha: ", barrier.gamma.alpha_var.value)
-            print("Barrier beta: ", barrier.gamma.beta_var.value)
-
         self._barriers         = barriers
         self._time_constraints = time_constraints
 
@@ -297,7 +299,7 @@ class TasksOptimizer:
 
 
         problem = cp.Problem(cp.Minimize(cost), self._time_constraints)
-        problem.solve(warm_start=True, verbose=True)
+        problem.solve(warm_start=True, verbose=False)
 
         print("Status: ", problem.status)
         print("Optimal value: ", problem.value)
@@ -306,6 +308,18 @@ class TasksOptimizer:
             print("Barrier alpha: ", barrier.gamma.alpha_var.value)
             print("Barrier beta: ", barrier.gamma.beta_var.value)
 
+    
+    def active_barriers_map(self,t: float) -> list[int]:
+        """
+        Returns the list of active barriers at time t.
+        """
+        active_barriers = []
+        for i, barrier in enumerate(self._barriers):
+            if barrier.gamma.beta > t:
+                active_barriers.append(i)
+        return active_barriers
+    
+    
     def plot_time_schedule(self) -> None:
         
         tasks :list[dict] = []
@@ -357,10 +371,27 @@ class TasksOptimizer:
         ax.set_yticklabels([f'Task {i+1}' for i in range(len(tasks))])
         ax.grid(True)
 
+
+        max_beta = 0 
+        for barrier in self._barriers:
+            max_beta = max(max_beta,barrier.gamma.beta)
+        
+        # plot the cardinality of the active set map
+        fig, ax = plt.subplots(figsize=(10, 4))
+        t = np.linspace(0, max_beta, int(max_beta*100))
+        card = []
+        for time in t:
+            card += [len(self.active_barriers_map(time))]
+        
+        ax.plot(t, card, label='Cardinality of Active Set')
+        
         plt.tight_layout()
         plt.show()
 
-    def optimize_barriers(self, input_bounds: Polytope ,system : LinearSystem, x_0 : np.ndarray) -> None:
+
+    
+    
+    def optimize_barriers(self, input_bounds: Polytope ,system : LinearSystem, x_0 : np.ndarray):
         
         
         if input_bounds.is_open:
@@ -374,85 +405,132 @@ class TasksOptimizer:
             raise ValueError("The initial state must be a vector of the same dimension as the workspace.")
 
         
-        vertices              = self._workspace.vertices # dim x num_vertices
+        vertices              = self._workspace.vertices.T # matrix [dim x,num_vertices]
         x_dim                 = self._workspace.num_dimensions
-        set_of_time_intervals = { barrier.gamma.alpha for barrier in self._barriers} | { barrier.gamma.beta for barrier in self._barriers} | {0.} # repeated time instants will be counted once in this way
+        set_of_time_intervals = list({ barrier.gamma.alpha for barrier in self._barriers} | { barrier.gamma.beta for barrier in self._barriers} | {0.}) # repeated time instants will be counted once in this way
         ordered_sequence      = sorted(set_of_time_intervals)
         k_gain                = 1 # hard coded for now
-        constraints           = []
+        constraints  :list[cp.Constraint]  = []
 
         if system.A_cont is None or system.B_cont is None:
             raise ValueError("The system must posses the continuous time matrices in order to be applied in this framework. Make sure you system derives from a continuous time system by calling the method c2c of the class Linear System")
         
-        # create extended dynamics
-        A_ext = np.block([[system.A_cont,np.zeros((system.A_cont.shape[0],0))],
-                        [np.zeros((1,system.A_cont.shape[1]))          ,0]])
-        B_ext = np.block([[system.B_cont],
-                        [0]])
-        P     = np.block([np.zeros(system.A_cont.shape[0]),1])
+        A = system.A_cont
+        B = system.B_cont
+
         
         # dynamic constraints
-        for i in range(len(ordered_sequence)-1): # for each interval
+        for jj in range(len(ordered_sequence)-1): # for each interval
             
             # Get two consecutive time intervals in the sequence.
-            s_i        = ordered_sequence[i]
-            s_i_plus_1 = ordered_sequence[i+1]
-
-
+            s_j        = ordered_sequence[jj]
+            s_j_plus_1 = ordered_sequence[jj+1]
 
             # Create vertices set. 
-            s_j_vec        = np.array([[s_i] for i in range(vertices.shape[1])]) # column vector
-            s_j_plus_1_vec = np.array([[s_i_plus_1] for i in range(vertices.shape[1])])
+            s_j_vec        = np.array([s_j for i in range(vertices.shape[1])]) # column vector
+            s_j_plus_1_vec = np.array([s_j_plus_1 for i in range(vertices.shape[1])])
             V_j            = np.hstack((np.vstack((vertices,s_j_vec)) , np.vstack((vertices,s_j_plus_1_vec)))) # space time vertices
-            U_j            = cp.Variable((V_j.shape[0], V_j.shape[1]))                                         # spece of control input vertices
-             
+            U_j            = cp.Variable((system.size_input, V_j.shape[1]))                                         # spece of control input vertices
+            
+            # Input constraints.
+            for kk in range(U_j.shape[1]):
+                u_kk = U_j[:,kk]
+                constraints += [input_bounds.A @ u_kk <= input_bounds.b]
 
             # Forward-invariance constraints. 
-            for active_task_index in active_barriers_map(s_i, self._barriers): # for each active map
+            for active_task_index in self.active_barriers_map(s_j): # for each active task
                 barrier = self._barriers[active_task_index]
                 
-                # select correct section
-                if s_i <= barrier.gamma.alpha and s_i_plus_1 <= barrier.gamma.alpha : # then (s_i,s_i_plus_1) in [0,\alpha_l]
-                    E = barrier.E1()
-                    c = barrier.c1()
+                # select correct section (equivalent to upsilon)
+                if barrier.gamma.upsilon(s_j) == 1 : # then (s_i,s_i_plus_1) in [0,\alpha_l]
+                    e = barrier.e1()
+                    g = barrier.g1()
                 else: # then (s_i,s_i_plus_1) in [\alpha_l,\beta_l]
-                    E = barrier.E2()
-                    c = barrier.c2()
+                    e = barrier.e2()
+                    g = barrier.g2()
 
-                for j in range(V_j.shape[1]): # for each vertex
-                    vertex       = V_j[:,j]
-                    u_vertex     = U_j[:,j]
-                    dyn          = A_ext @ vertex + B_ext @ u_vertex + P
-                    constraints += [E @ dyn >= k_gain * (E @ vertex + c)]
+                c = barrier.c()
+                D = barrier.D()
 
+                for kk in range(V_j.shape[1]): # for each vertex
+                    eta_kk   = V_j[:,kk]
+                    u_kk     = U_j[:,kk]
 
-        # Inclusion constraints
-        betas = { barrier.gamma.beta for barrier in self._barriers} | {0.}
-        betas_sorted = sorted(betas)
-        zeta_vars = cp.Variable(( x_dim, len(self._barriers)))
+                    eta_kk_not_time     = eta_kk[:-1]
+                    time                = eta_kk[-1]
+
+                    dyn                 = A @ eta_kk_not_time + B @ u_kk 
+                    constraints        += [D @ dyn + e >= -k_gain * (D @ eta_kk_not_time + e*time + c + g)]
+
         
+        # Inclusion constraints
+        betas        = list({ barrier.gamma.beta for barrier in self._barriers} | {0.}) # set inside the list removes duplicates if any.
+        betas        = sorted(betas)
+        zeta_vars    = cp.Variable(( x_dim, len(betas)))
+
+        # Impose zeta vars in the workspace
+        for kk in range(zeta_vars.shape[1]):
+            zeta_kk       =  zeta_vars[:,kk]
+            constraints  += [self._workspace.A @ zeta_kk <= self._workspace.b]
+            
         for l in range(1,len(betas)):
-            beta = betas_sorted[l]
+            beta_l = betas[l]
+            zeta_l = zeta_vars[:,l]
+
+            for l_tilde in self.active_barriers_map(betas[l-1]) : # barriers active at lim t-> - beta_l is equal to the one active at time beta_{l-1}
+                
+                print("Value of upsilon")
+                print(self._barriers[l_tilde].gamma.upsilon(beta_l))
+                if self._barriers[l_tilde].gamma.upsilon(beta_l) == 1: # checking for the value of upsilon
+                    e = self._barriers[l_tilde].e1()
+                    g = self._barriers[l_tilde].g1()
+                else:
+                    e = self._barriers[l_tilde].e2()
+                    g = self._barriers[l_tilde].g2()
+
+                D = self._barriers[l_tilde].D()  
+                c = self._barriers[l_tilde].c() 
+                
+                constraints += [D @ zeta_l + e * beta_l + c + g >= 0]
+        
+        # set the zeta at beta=0 zero and conclude
+        # initial state constraint
+        
+        zeta_0 = zeta_vars[:,0]
+        for barrier in self._barriers:
+            # at time beta=0 all tasks are active and they are in the first linear section of gamma
+            e = barrier.e1()
+            g = barrier.g1()
             
-            for l_tilde in active_barriers_map(betas_sorted[i-1], self._barriers) : # barriers active at lim t-> - beta_l is equal to the one active at time beta_{l-1}
-            
-                D_matrix  = self._barriers[l_tilde].D()
-                gamma     = self._barriers[l_tilde].gamma_var_value(beta)
-                gamma_vec = cp.vstack([gamma for i in range(x_dim)])
-                b_vec     = self._barriers[l_tilde].b_vec()
+            c = barrier.c()
+            D = barrier.D()
+            constraints += [D @ zeta_0 + e*0 + c + g >= 0]
 
-                constraints += [D_matrix @ zeta_vars[:,l] - b_vec + gamma_vec >= 0]
-            
+        constraints += [zeta_0 == x_0]
+  
 
-        # constaints on the parameters 
-        for barrier in self._barriers :
-            constraints += [barrier.gamma.r_var >= 0., barrier.gamma.gamma_0_var >= 0.]
+        # create problem and solve it
+        cost = 0
+        for barrier in self._barriers:
+            cost += -barrier.gamma.r_var
 
+        problem = cp.Problem(cp.Minimize(cost), constraints)
+        problem.solve()
+        print("===========================================================")
+        print("Summary")
+        print("===========================================================")
+        print("Status        : ", problem.status)
+        print("Optimal value : ", problem.value)
+        print("Obtained parameters :")
 
+        for barrier in self._barriers:
+            print("Operator        : ", barrier.task_type)
+            print("Barrier alpha   : ", barrier.gamma.alpha_var.value)
+            print("Barrier beta    : ", barrier.gamma.beta_var.value)
+            print("Barrier gamma_0 : ", barrier.gamma.gamma_0_var.value)
+            print("Barrier r       : ", barrier.gamma.r_var.value)
 
-
-
-
+        return problem.status
 
 
                 

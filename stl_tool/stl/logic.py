@@ -691,8 +691,8 @@ class Predicate(Formula) :
         Plot the predicate in the state space
         """
         root : PredicateNode = self.root # explicit call
-        root.polytope.plot(*args, **kwargs)
-
+        ax = root.polytope.plot(*args, **kwargs)
+        return ax
 
 def get_type_and_polytopic_predicate(formula : Formula ) -> tuple[str,Polytope] :
 
