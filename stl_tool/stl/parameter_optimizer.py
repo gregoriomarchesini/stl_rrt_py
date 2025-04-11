@@ -519,31 +519,12 @@ class TasksOptimizer:
                 c = barrier.c()
                 D = barrier.D()
                 
-                # print("here")
-                # print(barrier.gamma.upsilon(s_j))
-                # print(e)
-                # print(g)
-
                 for ii in range(V_j.shape[1]): # for each vertex
                     eta_ii   = V_j[:,ii]
                     u_ii     = U_j[:,ii]
 
                     eta_ii_not_time     = eta_ii[:-1]
                     time                = eta_ii[-1]
-
-                    # print(D@ (A @ eta_ii_not_time))
-                    # print(D @ eta_ii_not_time )
-                    # print(D@(B))
-                    print("upsilon :",barrier.gamma.upsilon(s_j))
-                    print("vertex:", eta_ii_not_time)
-                    print("g : ",g)
-                    print("e : ",e)
-                    print("c : ",c)
-                    print("D : ",D)
-                    print("pos_gain : ",-k_gain *(D@  eta_ii_not_time+ c))
-                    print("time :",time)
-                    print(D)
-
                     dyn                 = (A @ eta_ii_not_time + B @ u_ii)
                     constraints        += [D @ dyn + e + k_gain * (D @ eta_ii_not_time + e*time + c + g) >= 0]
 
@@ -601,13 +582,17 @@ class TasksOptimizer:
             
         fig,ax = plt.subplots(figsize=(10, 4))    
         problem = cp.Problem(cp.Minimize(cost), constraints)
+        good_k_found = False
         for k_val in np.arange(0.01,100,0.1):
             k_gain.value = k_val
             problem.solve(warm_start=True)
             if problem.status == cp.OPTIMAL :
-                ax.scatter(k_val,k_val,marker = 'x',color = 'b')
-            else :
-                ax.scatter(k_val,k_val,marker = 'o',color = 'r')
+                good_k_found = True
+                break
+        
+        if not good_k_found:
+            raise ValueError("A suitable k (the alpha functions for the barriers) was not found. Try to increase the input and retry.")
+        
             
 
         plt.show()
@@ -646,23 +631,20 @@ class TasksOptimizer:
             alpha = barrier.gamma.alpha
             beta  = barrier.gamma.beta
             
-       
             H1 = np.hstack((D,e1[:,np.newaxis]))
             H2 = np.hstack((D,e2[:,np.newaxis]))
 
             b1 =  c + g1
             b2 =  c + g2
 
-            # convert from the form H + b >= 0 to H <= b
-
+            # convert from the form Hx + c >= 0 to Hx <= b
             H1 = -H1
             H2 = -H2
-            b1 = b1
-            b2 = b2
+
             
-            self._time_varying_polytope_constraints += [TimeVaryingConstraint(start_time=0, end_time=alpha, H=H1, b=b1), TimeVaryingConstraint(start_time=alpha, end_time=beta, H=H2, b=b2)]
-  
-        
+            self._time_varying_polytope_constraints += [TimeVaryingConstraint(start_time=0., end_time=alpha, H=H1, b=b1), TimeVaryingConstraint(start_time=alpha, end_time=beta, H=H2, b=b2)]
+            
+             
         return problem.solver_stats
     
 

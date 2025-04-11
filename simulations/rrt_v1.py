@@ -33,7 +33,7 @@ map.draw() # draw if you want :)
 A             = np.eye(2)*0
 B             = np.eye(2)
 system        = LinearSystem.c2d(A, B, dt = 0.1)
-max_input     = 4.
+max_input     = 6.
 input_bounds  = Box2d(x = 0.,y = 0.,size = max_input*2) 
 
 
@@ -42,16 +42,15 @@ input_bounds  = Box2d(x = 0.,y = 0.,size = max_input*2)
 ##########################################################
 center        = np.array([-0., 0.])
 box_predicate = BoxPredicate(n_dim = 2, size = 1.5, center = center)
-formula       = (GOp(10.,14.) >> box_predicate) 
+formula       = (GOp(10.,14.) >> box_predicate) & (FOp(17.,20.) >> box_predicate) 
 map.draw_formula_predicate(formula = formula)
 # formula.show_graph()
 
 ##########################################################
 # From STL to Barriers
 ##########################################################
-x_0       = center + np.array([4,-4.])
+x_0       = center + np.array([2,-2.])
 map.show_point(x_0, color = 'r', label = 'start') # show start point
-plt.show()
 
 scheduler = TasksOptimizer(formula, workspace) # create task optimizer
 scheduler.make_time_schedule()                 # create scheduling of the tasks
@@ -66,7 +65,7 @@ solver_stats = scheduler.optimize_barriers( input_bounds = input_bounds,     # o
 #########################################################
 # Create RRT solver
 #########################################################
-# time_varying_constraints = scheduler.get_barrier_as_time_varying_polytopes()
+time_varying_constraints = scheduler.get_barrier_as_time_varying_polytopes()
 # rrt_constraints          = []
 # for tvc in time_varying_constraints:
 #     rrt_constraints.append(TimedConstraint(H     = tvc.H,
@@ -88,4 +87,5 @@ solver_stats = scheduler.optimize_barriers( input_bounds = input_bounds,     # o
 
 # rrt_planner.plan()
 # rrt_planner.plot_rrt_solution()
-# # # # plt.title("Box Predicate")
+# plt.title("Box Predicate")
+# plt.show()

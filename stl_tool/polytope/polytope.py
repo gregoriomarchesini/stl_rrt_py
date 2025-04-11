@@ -199,14 +199,21 @@ class Polytope:
         if not self.is_open:
             vertices = self.vertices
         else:
-            big_number = 10000
-            vertices   = np.vstack(( self.vertices, self.vertices + big_number*self.rays))
+            
+            big_number = 1000
+            new_vertices = []
+            for vertex in self.vertices:
+                shiften_vertices = vertex + big_number * self.rays
+                new_vertices.append(shiften_vertices)
+            
+            
+            vertices = np.vstack((self.vertices, *shiften_vertices))
 
         if len(vertices) == 0:
             return  # Nothing to plot if no vertices
 
-        vertices = np.array(vertices)
         dim = vertices.shape[1]
+        print(vertices)
 
         if dim > 3:
             raise ValueError("Cannot plot polytopes with more than 3 dimensions.")
@@ -236,8 +243,10 @@ class Polytope:
         try:
             hull = ConvexHull(vertices)
             hull_vertices = vertices[hull.vertices]
-        except:
+        except Exception as e:
             hull_vertices = vertices  # Fallback to raw vertices if hull fails
+            print(f"Error computing convex hull: {e}")
+
 
         if dim == 2:
             # 2D Polytope Plotting
