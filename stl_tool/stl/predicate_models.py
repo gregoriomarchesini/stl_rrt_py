@@ -40,7 +40,11 @@ class BoxPredicate(Predicate):
     Polytope representing an n-dimensional box.
     """
 
-    def __init__(self, n_dim: int, size: float, center: np.ndarray, name:str | None = None):
+    def __init__(self, n_dim: int, size: float, center: np.ndarray = None, name:str | None = None):
+        
+        if center is None:
+            center = np.zeros(n_dim)
+            
         center = center.flatten()  # Ensure center is a 1D array
         if center.shape[0] != n_dim:
             raise ValueError(f"The center must be a {n_dim}D vector")

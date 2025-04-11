@@ -24,8 +24,8 @@ class Polytope:
         # Ensure that b is a 1D array
         b = b.flatten()
 
-        self.A = A
-        self.b = b
+        self.A = A 
+        self.b = b 
 
         # Convert A and b into CDDlib format (H-representation)
         mat          = np.hstack([b.reshape(-1, 1), -A])
@@ -222,9 +222,17 @@ class Polytope:
             # If the provided axis is 2D but the polytope is 3D, convert it to 3D
             if dim == 3 and not hasattr(ax, "get_proj"):
                 fig = ax.figure  # Get the current figure
+                # save limits
+                xlim = ax.get_xlim()
+                ylim = ax.get_ylim()
+                
                 fig.delaxes(ax)  # Remove the old 2D axis
                 ax = fig.add_subplot(111, projection='3d')  # Replace with a 3D axis
 
+                # set limits as per teh previois axis 
+                ax.set_xlim(xlim)   
+                ax.set_ylim(ylim)
+                ax.set_zlim(xlim)
         try:
             hull = ConvexHull(vertices)
             hull_vertices = vertices[hull.vertices]
@@ -379,7 +387,17 @@ class Polytope:
 
         return samples
 
-    
+    def __contains__(self, x):
+        """
+        Check if a point x is inside the polytope.
+        Args:
+            x: A point as a numpy array.
+        Returns:
+            True if the point is inside the polytope, False otherwise.
+        """
+        return self.contains(x)
+
+
     def __eq__(self, other, tol=1e-7):
         """
         Check if two polytopes define the same set by comparing their canonical forms.
@@ -403,10 +421,73 @@ class Polytope:
         # Compare the sorted arrays with a tolerance
         return (self_sorted.shape == other_sorted.shape) and np.allclose(self_sorted, other_sorted, atol=tol)
     
+    def get_inflated_polytope_to_dimension(self, dim:int):
+        """
+        Get creates a polytope with the given dimension out of the lower dimension polytope by expanding the A matrix 
+        """
 
-class Box2d(Polytope):
+        # Get the current dimensions of the polytope
+        current_dim = self.num_dimensions
 
-    def __init__(self, x:float, y:float, w:float, h:float) -> None:
+        # If the current dimension is already equal to the desired dimension, return the original polytope
+        if current_dim == dim:
+            return self
+        elif current_dim > dim:
+            raise ValueError("The current dimension is greater than the desired dimension. Cannot inflate. use projection instead")
+        else :
+            # Create a new A matrix with the desired number of dimensions
+            new_A = np.zeros((self.A.shape[0], dim))
+
+            # Fill in the existing A matrix values
+            new_A[:, :current_dim] = self.A
+
+        return Polytope(new_A, self.b)
+    
+
+class BoxNd(Polytope):
+    """
+    Box in nD space
+    """
+
+    def __init__(self,n_dim:int,  size:float|list[float], center:np.ndarray = None) -> None:
+        """
+        Args:
+            center : np.ndarray
+                center of the box
+            size : float
+                size of the box
+
+        """
+
+        if center is None:
+            center = np.zeros(n_dim)
+            
+        self.center = center
+        self.n_dim  = n_dim
+        
+        if isinstance(size, (int, float)):
+            self.size = np.array([size] * n_dim)
+        else:
+            self.size = np.array(size)
+
+        # check dimensions 
+        if len(self.size) != n_dim:
+            raise ValueError(f"size should be of length {n_dim}. Given : {len(self.size)}")
+        # check center dimensions
+        if len(center) != n_dim:
+            raise ValueError(f"center should be of length {n_dim}. Given : {len(center)}")
+        
+
+        # create the polytope
+        A = np.vstack((np.eye(n_dim), -np.eye(n_dim)))
+        b = np.hstack((self.size,self.size)) / 2 + A @ self.center
+
+        super().__init__(A, b)
+
+
+class Box2d(BoxNd):
+
+    def __init__(self, x:float, y:float, size:float|list[float] ) -> None:
         """
         Args:
             x : float
@@ -421,13 +502,12 @@ class Box2d(Polytope):
         """
         self.x = x
         self.y = y
-        self.w = w
-        self.h = h
-        super().__init__(np.array([[1, 0], [0, 1], [-1, 0], [0, -1]]), np.array([x + w / 2, y + h / 2, -x + w / 2, -y + h / 2]))
+        super().__init__(n_dim = 2, size = size, center = np.array([x,y]))
 
-class Box3d(Polytope):
 
-    def __init__(self, x:float, y:float, z:float, w:float, h:float, d:float) -> None:
+class Box3d(BoxNd):
+
+    def __init__(self, x:float, y:float, z:float, size: float|list[float]) -> None:
         """
         Args:
             x : float
@@ -436,21 +516,72 @@ class Box3d(Polytope):
                 y coordinate of the box
             z : float
                 z coordinate of the box
-            w : float
-                width of the box
-            h : float
-                height of the box
-            d : float
-                depth of the box
-
         """
         self.x = x
         self.y = y
         self.z = z
-        self.w = w
-        self.h = h
-        self.d = d
-        super().__init__(np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1], [-1, 0, 0], [0, -1, 0], [0, 0, -1]]), np.array([x + w / 2, y + h / 2, z + d / 2, -x + w / 2, -y + h / 2, -z + d / 2]))
+        center = np.array([x, y, z])
+        super().__init__(n_dim = 3, size = size, center = center)
+
+
+class Geq2d(Polytope):
+    def __init__(self, coordinate : str, bound : float) :
+        """
+        Args:
+            coordinate : str
+                coordinate of the box
+            bound : float
+                bound of the box
+        """
+        if coordinate == "x":
+            A = np.array([[-1., 0]])
+        elif coordinate == "y":
+            A = np.array([[0., -1]])
+        else:
+            raise ValueError("coordinate should be either x or y")
+        
+        b = -np.array([bound])
+
+        super().__init__(A, b)
+
+class Leq2d(Polytope):
+    def __init__(self, coordinate : str, bound : float) :
+        """
+        Args:
+            coordinate : str
+                coordinate of the box
+            bound : float
+                bound of the box
+        """
+        if coordinate == "x":
+            A = np.array([[1., 0]])
+        elif coordinate == "y":
+            A = np.array([[0., 1]])
+        else:
+            raise ValueError("coordinate should be either x or y")
+        
+        b = np.array([bound])
+
+        super().__init__(A, b)
+
+
+def concatenate_diagonally(*polytopes: Polytope ):
+    """
+    Concatenate polytopes diagonally to create a new polytope.
+    Args:
+        *polytopes: List of Polytope objects to concatenate.
+    Returns:
+        A new Polytope object representing the concatenated polytope.
+    """
+    A = np.diag([polytope.A for polytope in polytopes])
+    b = np.concatenate([polytope.b for polytope in polytopes])
+    # Ensure b is a 1D array
+    b = b.flatten()
+    
+
+    return Polytope(A, b)
+
+
 
 
 if __name__ == "__main__":

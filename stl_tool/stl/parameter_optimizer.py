@@ -3,10 +3,11 @@ from   typing import Optional, Union
 import cvxpy as cp
 from   openmpc import LinearSystem
 from matplotlib import pyplot as plt
+import json
 
 
 from stl_tool.stl.logic import Formula, AndOperator, Node, get_type_and_polytopic_predicate, OrOperator ,UOp, FOp, GOp
-from stl_tool.polytope import Polytope
+from stl_tool.polytope  import Polytope
 from stl_tool.stl.utils import TimeInterval
 
 
@@ -60,9 +61,9 @@ class GammaFun:
     def upsilon(self,t:float)-> int :
         t = float(t)
 
-        if t >= 0. and t < self.alpha:
+        if (t >= 0.) and (t < self.alpha):
             return 1
-        elif t >= self.alpha and t <= self.beta:
+        elif (t >= self.alpha) and (t <= self.beta):
             return 2
         else :
             raise ValueError("The given time time is outside the range [0,beta].")
@@ -103,34 +104,47 @@ class BarrierFunction :
     def task_type(self, value):
         if not isinstance(value, str):
             raise ValueError("Task type must be a string.")
+        if value not in ["G", "F", "FG", "GF"]:
+            raise ValueError("Task type must be one of 'G', 'F', 'FG', or 'GF'.")
+        self._task_type = value
 
     
     def D(self):
         D = - self.polytope.A
         return D
     
-    def e1(self):
+    def e1_var(self):
         
-        e_vec = - self.gamma.gamma_0_var/self.gamma.alpha *np.ones(self.polytope.num_hyperplanes) 
+        e_vec = - (self.gamma.gamma_0_var/self.gamma.alpha) * np.ones(self.polytope.num_hyperplanes) 
         e_vec = cp.hstack(e_vec)
         return e_vec
     
-    def e2(self):
+    def e2_var(self):
         e_vec = np.zeros(self.polytope.num_hyperplanes)
-        e_vec = cp.hstack(e_vec)
+        e_vec = np.hstack(e_vec)
         return e_vec
     
-    def g1(self) :
+    def g1_var(self) :
         g_vec = (self.gamma.gamma_0_var  - self.gamma.r_var)*np.ones(self.polytope.num_hyperplanes) 
         return g_vec
     
-    def g2(self) :
+    def g2_var(self) :
         g_vec = -self.gamma.r_var *np.ones(self.polytope.num_hyperplanes) 
         return g_vec
 
     def c(self) :
         return self.polytope.b
     
+    def e1_value(self):
+        return - self.gamma.gamma_0/self.gamma.alpha *np.ones(self.polytope.num_hyperplanes)
+    def e2_value(self):
+        return np.zeros(self.polytope.num_hyperplanes)
+    def g1_value(self):
+        return (self.gamma.gamma_0 - self.gamma.r) * np.ones(self.polytope.num_hyperplanes)
+    def g2_value(self):
+        return - self.gamma.r * np.ones(self.polytope.num_hyperplanes)
+    
+
     def gamma_var_value(self,t):
 
         if t <0 :
@@ -151,10 +165,13 @@ class TasksOptimizer:
     def __init__(self,formula : Formula, workspace: Polytope) :
         
         self.formula           : Formula                = formula
+        self._workspace        : Polytope               = workspace
+
         self._varphi_formulas  : list[Formula]          = [] # subformulas G,F,FG,GF
         self._barriers         : list[BarrierFunction]  = []
         self._time_constraints : list[cp.Constraint]    = []
-        self._workspace        : Polytope               = workspace
+
+        self._time_varying_polytope_constraints : list[TimeVaryingConstraint] = []
 
         if workspace.is_open:
             raise ValueError("The workspace is an open Polyhedron. Please provide a closed polytope")
@@ -174,6 +191,12 @@ class TasksOptimizer:
         else:
             self._varphi_formulas = [self.formula]            
         
+
+        self.tasks : list[dict] = []
+        
+        print("============================================================")
+        print("Enumerating tasks")
+        print("============================================================")
         for formula in self._varphi_formulas:
             try :
                 type_formula,polytope = get_type_and_polytopic_predicate(formula)
@@ -196,6 +219,10 @@ class TasksOptimizer:
                 gamma.alpha_var.value = time_interval.a
                 gamma.beta_var.value  = time_interval.b
 
+                start_time = formula.root.interval.a
+                duration   =  formula.root.interval.b - start_time
+                self.tasks.append({'start_time': start_time, 'duration': duration, 'type': type_formula})
+
             elif type_formula == "F" :
                 gamma = GammaFun()
                 barrier = BarrierFunction(polytope, gamma)
@@ -208,6 +235,10 @@ class TasksOptimizer:
                 ## give initial guess
                 gamma.alpha_var.value = time_interval.get_sample()
                 gamma.beta_var.value  = gamma.alpha_var.value+0.003
+
+                start_time = formula.root.interval.a
+                duration   =  formula.root.interval.b - start_time
+                self.tasks.append({'start_time': start_time, 'duration': duration, 'type': type_formula})
 
             elif type_formula == "FG":
                 time_interval_prime : TimeInterval = root.children[0].interval
@@ -223,7 +254,17 @@ class TasksOptimizer:
                 gamma.alpha_var.value = time_interval.get_sample() + time_interval_prime.a
                 gamma.beta_var.value  = gamma.alpha_var.value + (time_interval_prime.b - time_interval_prime.a)
 
+                start_time = formula.root.interval.a + formula.root.children[0].interval.a
+                duration   =  (formula.root.interval.b + formula.root.children[0].interval.b) - start_time
+                self.tasks.append({'start_time': start_time, 'duration': duration, 'type': type_formula})
+
             elif type_formula == "GF":
+
+                start_time = formula.root.interval.a + formula.root.children[0].interval.a
+                duration   =  (formula.root.interval.b + formula.root.children[0].interval.b) - start_time
+                self.tasks.append({'start_time': start_time, 'duration': duration, 'type': type_formula})
+
+
                 time_interval_prime : TimeInterval = root.children[0].interval
                 min_repetitions = np.ceil(time_interval.period/time_interval_prime.period)
                 
@@ -274,13 +315,65 @@ class TasksOptimizer:
                 ## give initial guess
                 gamma.alpha_var.value =  time_interval_prime.get_sample() + time_interval.b
                 gamma.beta_var.value  =  gamma.alpha_var.value 
+                
+            
+            print("Found Tasks of type: ", type_formula)
+            print("Start time: ", start_time)
+            print("Duration: ", duration)
+            print("---------------------------------------------")
+        print("====== Enumeration completed =======================")
 
         self._barriers         = barriers
         self._time_constraints = time_constraints
 
+    def _make_high_order_corrections(self, system : LinearSystem, k_gain : float ):
+
+        """
+        High order barrier funcitons are required if a given predicate is not directly controllable.
+
+        Take for example a linear system with dynamics x_dot = Ax = Bu and take a predicate of the form  a x + c >= 0.
+        Then it can be that c^TB = 0 such that the barrier constraint cT (Ax + Bu) \geq k_gain*(a x + c ) can only be satisfied if the system satisfies it, but there is no 
+        controllability on the system. We should then consider the higher order derivatives of the predicate.
+        
+        """
+
+        if not system.is_controllable():
+            raise ValueError("The provided system is not controllable. As of now, only controllable systems can be considered for barriers optimization.")
+        
+
+       
+
+        A = system.A_cont
+        B = system.B_cont
+        I = np.eye(system.size_state)
+
+        print("================================================")
+        print("Correcting barriers for high order systems")
+        print("================================================")
+        for barrier in self._barriers :
+            D = barrier.D()
+            c = barrier.c()
+            still_not_right_order  = True
+            order = 0
+            while still_not_right_order : #(for controllable systems this will stop after at most a number of iterations equal to the state space)
+                D = D@(A + I*k_gain)
+                # if there is at least one row of all zeros then you must go on
+                for jj in range(D.shape[0]):
+                    if np.all(D[jj,:] == 0):
+                        pass
+                    else:
+                        # controllability is satisfied
+                        still_not_right_order = False 
+                        break
+                order += 1
+            
+            print("Found barrier function of order : ", order)
+            new_polytope = Polytope(A =  -D  , b = k_gain**order * c) # just change of sign needed for the descrption of the politope (Barrier is Dx + c >= but polytope is Ax <= b)
+            barrier._polytope = new_polytope
+        
+
     def make_time_schedule(self) :
 
-        
         self._create_barriers_and_time_constraints()
         
         # create optimization problem 
@@ -300,13 +393,18 @@ class TasksOptimizer:
 
         problem = cp.Problem(cp.Minimize(cost), self._time_constraints)
         problem.solve(warm_start=True, verbose=False)
-
-        print("Status: ", problem.status)
-        print("Optimal value: ", problem.value)
-
+        print("===========================================================")
+        print("Times Schedule completed")
+        print("===========================================================")
+        print("Number of barrier functions created: ", len(self._barriers))
+        print("Times optimization status: ", problem.status)
+        
+        print("Listing alpha and beta values per task :")
         for barrier in self._barriers:  
-            print("Barrier alpha: ", barrier.gamma.alpha_var.value)
-            print("Barrier beta: ", barrier.gamma.beta_var.value)
+            print("Operator      : ", barrier.task_type)
+            print("Barrier alpha : ", barrier.gamma.alpha_var.value)
+            print("Barrier beta  : ", barrier.gamma.beta_var.value)
+            print("-----------------------------------------------------")
 
     
     def active_barriers_map(self,t: float) -> list[int]:
@@ -322,53 +420,19 @@ class TasksOptimizer:
     
     def plot_time_schedule(self) -> None:
         
-        tasks :list[dict] = []
-        for formula in self._varphi_formulas:
-            try :
-                type_formula , polytope = get_type_and_polytopic_predicate(formula)
-            except ValueError:
-                raise ValueError("At least one of the formulas set in conjunction is not within the currently allowed grammar. Please verify the predicates in the formula.")
-
-            # Sample task data: (start_time, duration)
-            
-            if type_formula == "G" :
-                # Plotting the G operator
-                start_time = formula.root.interval.a
-                duration   = formula.root.interval.b - start_time
-                tasks.append({'start_time': start_time, 'duration': duration})
-            elif type_formula == "F" :
-                # Plotting the F operator
-                start_time = formula.root.interval.a
-                duration   = formula.root.interval.b - start_time
-                tasks.append({'start_time': start_time, 'duration': duration})
-
-            elif type_formula == "FG" :
-                # Plotting the FG operator
-                start_time = formula.root.interval.a + formula.root.children[0].interval.a
-                duration   =  (formula.root.interval.b + formula.root.children[0].interval.b) - start_time
-                tasks.append({'start_time': start_time, 'duration': duration})
-
-            elif type_formula == "GF" :
-                # Plotting the GF operator
-                start_time = formula.root.interval.a + formula.root.children[0].interval.a
-                duration   =  (formula.root.interval.b + formula.root.children[0].interval.b) - start_time
-                tasks.append({'start_time': start_time, 'duration': duration})
-            else:
-                raise ValueError("Unsupported formula type for plotting.")
+        
                
-        print("Tasks: ", tasks)
-        print(self._varphi_formulas)
         fig, ax = plt.subplots(figsize=(10, 4))
 
         # Plot each task as a thin bar on its own y-row
-        for i, task in enumerate(tasks):
+        for i, task in enumerate(self.tasks):
             ax.broken_barh([(task["start_time"], task["duration"])], (i - 0.4, 0.8), facecolors='tab:blue')
 
         # Labeling
         ax.set_xlabel('Time')
         ax.set_ylabel('Task number')
-        ax.set_yticks(range(len(tasks)))
-        ax.set_yticklabels([f'Task {i+1}' for i in range(len(tasks))])
+        ax.set_yticks(range(len(self.tasks)))
+        ax.set_yticklabels([f'Task {i+1}' for i in range(len(self.tasks))])
         ax.grid(True)
 
 
@@ -391,7 +455,7 @@ class TasksOptimizer:
 
     
     
-    def optimize_barriers(self, input_bounds: Polytope ,system : LinearSystem, x_0 : np.ndarray):
+    def optimize_barriers(self, input_bounds: Polytope ,system : LinearSystem, x_0 : np.ndarray, gain: float = 1.0) :
         
         
         if input_bounds.is_open:
@@ -409,8 +473,11 @@ class TasksOptimizer:
         x_dim                 = self._workspace.num_dimensions
         set_of_time_intervals = list({ barrier.gamma.alpha for barrier in self._barriers} | { barrier.gamma.beta for barrier in self._barriers} | {0.}) # repeated time instants will be counted once in this way
         ordered_sequence      = sorted(set_of_time_intervals)
-        k_gain                = 1 # hard coded for now
-        constraints  :list[cp.Constraint]  = []
+        k_gain                = cp.Parameter(nonneg=True) #! (when program fails try to increase control input and increase the k_gain. Carefully analyze the situation. Usually it should be at leat equal to 1.)
+        k_gain.value          = gain
+        
+        self._make_high_order_corrections(system = system, k_gain = k_gain.value)
+        
 
         if system.A_cont is None or system.B_cont is None:
             raise ValueError("The system must posses the continuous time matrices in order to be applied in this framework. Make sure you system derives from a continuous time system by calling the method c2c of the class Linear System")
@@ -418,7 +485,8 @@ class TasksOptimizer:
         A = system.A_cont
         B = system.B_cont
 
-        
+        constraints  :list[cp.Constraint]  = []
+
         # dynamic constraints
         for jj in range(len(ordered_sequence)-1): # for each interval
             
@@ -436,31 +504,48 @@ class TasksOptimizer:
             for kk in range(U_j.shape[1]):
                 u_kk = U_j[:,kk]
                 constraints += [input_bounds.A @ u_kk <= input_bounds.b]
-
             # Forward-invariance constraints. 
             for active_task_index in self.active_barriers_map(s_j): # for each active task
-                barrier = self._barriers[active_task_index]
+                barrier = self._barriers[active_task_index] 
                 
                 # select correct section (equivalent to upsilon)
                 if barrier.gamma.upsilon(s_j) == 1 : # then (s_i,s_i_plus_1) in [0,\alpha_l]
-                    e = barrier.e1()
-                    g = barrier.g1()
+                    e = barrier.e1_var()
+                    g = barrier.g1_var()
                 else: # then (s_i,s_i_plus_1) in [\alpha_l,\beta_l]
-                    e = barrier.e2()
-                    g = barrier.g2()
+                    e = barrier.e2_var()
+                    g = barrier.g2_var()
 
                 c = barrier.c()
                 D = barrier.D()
+                
+                # print("here")
+                # print(barrier.gamma.upsilon(s_j))
+                # print(e)
+                # print(g)
 
-                for kk in range(V_j.shape[1]): # for each vertex
-                    eta_kk   = V_j[:,kk]
-                    u_kk     = U_j[:,kk]
+                for ii in range(V_j.shape[1]): # for each vertex
+                    eta_ii   = V_j[:,ii]
+                    u_ii     = U_j[:,ii]
 
-                    eta_kk_not_time     = eta_kk[:-1]
-                    time                = eta_kk[-1]
+                    eta_ii_not_time     = eta_ii[:-1]
+                    time                = eta_ii[-1]
 
-                    dyn                 = A @ eta_kk_not_time + B @ u_kk 
-                    constraints        += [D @ dyn + e >= -k_gain * (D @ eta_kk_not_time + e*time + c + g)]
+                    # print(D@ (A @ eta_ii_not_time))
+                    # print(D @ eta_ii_not_time )
+                    # print(D@(B))
+                    print("upsilon :",barrier.gamma.upsilon(s_j))
+                    print("vertex:", eta_ii_not_time)
+                    print("g : ",g)
+                    print("e : ",e)
+                    print("c : ",c)
+                    print("D : ",D)
+                    print("pos_gain : ",-k_gain *(D@  eta_ii_not_time+ c))
+                    print("time :",time)
+                    print(D)
+
+                    dyn                 = (A @ eta_ii_not_time + B @ u_ii)
+                    constraints        += [D @ dyn + e + k_gain * (D @ eta_ii_not_time + e*time + c + g) >= 0]
 
         
         # Inclusion constraints
@@ -469,7 +554,7 @@ class TasksOptimizer:
         zeta_vars    = cp.Variable(( x_dim, len(betas)))
 
         # Impose zeta vars in the workspace
-        for kk in range(zeta_vars.shape[1]):
+        for kk in range(1,zeta_vars.shape[1]):
             zeta_kk       =  zeta_vars[:,kk]
             constraints  += [self._workspace.A @ zeta_kk <= self._workspace.b]
             
@@ -479,49 +564,63 @@ class TasksOptimizer:
 
             for l_tilde in self.active_barriers_map(betas[l-1]) : # barriers active at lim t-> - beta_l is equal to the one active at time beta_{l-1}
                 
-                print("Value of upsilon")
-                print(self._barriers[l_tilde].gamma.upsilon(beta_l))
                 if self._barriers[l_tilde].gamma.upsilon(beta_l) == 1: # checking for the value of upsilon
-                    e = self._barriers[l_tilde].e1()
-                    g = self._barriers[l_tilde].g1()
+                    e = self._barriers[l_tilde].e1_var()
+                    g = self._barriers[l_tilde].g1_var()
                 else:
-                    e = self._barriers[l_tilde].e2()
-                    g = self._barriers[l_tilde].g2()
+                    e = self._barriers[l_tilde].e2_var()
+                    g = self._barriers[l_tilde].g2_var()
 
                 D = self._barriers[l_tilde].D()  
                 c = self._barriers[l_tilde].c() 
-                
                 constraints += [D @ zeta_l + e * beta_l + c + g >= 0]
         
         # set the zeta at beta=0 zero and conclude
         # initial state constraint
-        
         zeta_0 = zeta_vars[:,0]
         for barrier in self._barriers:
             # at time beta=0 all tasks are active and they are in the first linear section of gamma
-            e = barrier.e1()
-            g = barrier.g1()
+            e = barrier.e1_var()
+            g = barrier.g1_var()
             
             c = barrier.c()
             D = barrier.D()
-            constraints += [D @ zeta_0 + e*0 + c + g >= 0]
 
+            constraints += [D @ zeta_0 + c + g >= 0]
+        
+        # initial state constraint
         constraints += [zeta_0 == x_0]
-  
+
+
+
 
         # create problem and solve it
         cost = 0
         for barrier in self._barriers:
             cost += -barrier.gamma.r_var
-
+            
+        fig,ax = plt.subplots(figsize=(10, 4))    
         problem = cp.Problem(cp.Minimize(cost), constraints)
-        problem.solve()
+        for k_val in np.arange(0.01,100,0.1):
+            k_gain.value = k_val
+            problem.solve(warm_start=True)
+            if problem.status == cp.OPTIMAL :
+                ax.scatter(k_val,k_val,marker = 'x',color = 'b')
+            else :
+                ax.scatter(k_val,k_val,marker = 'o',color = 'r')
+            
+
+        plt.show()
+
+
+
         print("===========================================================")
-        print("Summary")
+        print("Barrier functions optimization result")
         print("===========================================================")
         print("Status        : ", problem.status)
         print("Optimal value : ", problem.value)
-        print("Obtained parameters :")
+        print("-----------------------------------------------------------")
+        print("Listing parameters per task")
 
         for barrier in self._barriers:
             print("Operator        : ", barrier.task_type)
@@ -529,15 +628,89 @@ class TasksOptimizer:
             print("Barrier beta    : ", barrier.gamma.beta_var.value)
             print("Barrier gamma_0 : ", barrier.gamma.gamma_0_var.value)
             print("Barrier r       : ", barrier.gamma.r_var.value)
+            print("---------------------------------------------------")
 
-        return problem.status
+        if problem.status != cp.OPTIMAL:
+            print("Problem is not optimal. Terminate!")
+            exit()
+        
+        # saving constraints as time_state constraints
+        for barrier in self._barriers:
+            D = barrier.D()
+            c = barrier.c()
+            e1 = barrier.e1_value()
+            e2 = barrier.e2_value()
+            g1 = barrier.g1_value()
+            g2 = barrier.g2_value()
+
+            alpha = barrier.gamma.alpha
+            beta  = barrier.gamma.beta
+            
+       
+            H1 = np.hstack((D,e1[:,np.newaxis]))
+            H2 = np.hstack((D,e2[:,np.newaxis]))
+
+            b1 =  c + g1
+            b2 =  c + g2
+
+            # convert from the form H + b >= 0 to H <= b
+
+            H1 = -H1
+            H2 = -H2
+            b1 = b1
+            b2 = b2
+            
+            self._time_varying_polytope_constraints += [TimeVaryingConstraint(start_time=0, end_time=alpha, H=H1, b=b1), TimeVaryingConstraint(start_time=alpha, end_time=beta, H=H2, b=b2)]
+  
+        
+        return problem.solver_stats
+    
 
 
-                
+    
+    def get_barrier_as_time_varying_polytopes(self):
+        return self._time_varying_polytope_constraints
 
+    def save_polytopes(self, filename):
+        """
+        Save a list of polytopes (H, b) with intervals to a file.
+        
+        Args:
+            polytopes_list: List of tuples like [(H1, b1, (min1, max1)), (H2, b2, (min2, max2)), ...]
+            filename: Output file path (e.g., 'polytopes.json')
+        """
+        
+        for constraint in self._time_varying_polytope_constraints:
+            constraint.to_file(filename)
+ 
             
 
 
+class TimeVaryingConstraint:
+    def __init__(self, start_time: float, end_time:float, H :np.ndarray, b:np.ndarray):
+        
+        
+        self.start_time  :float       = start_time
+        self.end_time    :float       = end_time
+        self.H           : np.ndarray = H
+        self.b           : np.ndarray = b
+
+    def to_file(self, filename: str) -> None:
+        """
+        Save the time-varying constraint to a file.
+        
+        Args:
+            filename: Output file path (e.g., 'constraint.json')
+        """
+        data = {
+            'start_time': self.start_time,
+            'end_time': self.end_time,
+            'H': self.H.tolist(),
+            'b': self.b.tolist()
+        }
+        
+        with open(filename, 'w') as f:
+            json.dump(data, f)
     
     
 

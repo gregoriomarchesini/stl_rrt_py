@@ -467,7 +467,7 @@ class Formula:
         return recursive_has_temporal_operators(self.root)
     
 
-    def horizon_time_of_formula(self):
+    def max_horizon(self):
         """
         Get the horizon time of the formula
         """
