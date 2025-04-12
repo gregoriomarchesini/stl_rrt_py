@@ -11,7 +11,7 @@ from openmpc.models  import LinearSystem
 from openmpc.support import TimedConstraint
 
 
-from stl_tool.env.map  import Map
+from stl_tool.environment.map  import Map
 from stl_tool.polytope import Polytope
 
 
