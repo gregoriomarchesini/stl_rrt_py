@@ -1,3 +1,3 @@
-from .rrt import RRT
+from .rrt import RRT, RRTStar
 
-___all__ = ["RRT"]
+___all__ = ["RRT", "RRTStar"]

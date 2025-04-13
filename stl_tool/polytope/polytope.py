@@ -10,16 +10,7 @@ class Polytope:
     def __init__(self, A, b):
         # Normalize the polytope inequalities to the form a^Tx <= 1
 
-
-
-
-        # # centering the polytope 
-        # if not np.all(b >= 0.) :
-        #     self.center = - np.pinv(A) @ b
-        # else:
-        #     self.center = np.zeros(A.shape[1])
-
-        A, b = self.normalize(A, b)
+        # A, b = self.normalize(A, b) #! normalization is risky when working with shifted polytopes
         
         # Ensure that b is a 1D array
         b = b.flatten()
@@ -93,7 +84,7 @@ class Polytope:
         
         # Avoid division by zero
         b_norm       = np.where(b == 0, 1, b)  # Use 1 to avoid division by zero
-        A_normalized = A/np.abs(b_norm[:, np.newaxis])
+        A_normalized = A/np.abs(b_norm)[:,np.newaxis]
         b_normalized = b/np.abs(b_norm)
 
         return A_normalized, b_normalized
@@ -139,6 +130,8 @@ class Polytope:
         generators     = np.array(generators_lib.array)
         linearities    = np.array(list(generators_lib.lin_set)) # It tells which rays are allowed to be also negative (https://people.inf.ethz.ch/fukudak/cdd_home/cddlibman2021.pdf) pp. 4
         
+        if not len(generators) :
+            raise ValueError("The polytope is empty. No vertices or rays found.")
         vertices_indices = generators[:,0] == 1. # vertices are only the generators with 1 in the first column (https://people.inf.ethz.ch/fukudak/cdd_home/cddlibman2021.pdf) pp. 4
         
         vertices      = generators[vertices_indices, 1:]   # Skip the first column (homogenizing coordinate) # vertices are returns a 2d array where vertices are enumareted aloing the rows
@@ -213,7 +206,6 @@ class Polytope:
             return  # Nothing to plot if no vertices
 
         dim = vertices.shape[1]
-        print(vertices)
 
         if dim > 3:
             raise ValueError("Cannot plot polytopes with more than 3 dimensions.")

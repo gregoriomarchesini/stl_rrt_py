@@ -67,11 +67,16 @@ class RRT:
         self.kd_tree_past      = KDTree([self.start_node]) 
         self.bias_future_time  = bias_future_time
         
+        
+        self.TIME = 2
+        self.STATE = [0,1]
 
         self.obtained_paths    = []   
         self.new_nodes         = []  
         self.sampled_nodes     = []    
         self.solutions         = []    
+
+        self.iteration         = 0
 
 
 
@@ -90,17 +95,21 @@ class RRT:
                                 horizon = self.prediction_steps, 
                                 Q       = Q, 
                                 R       = R, 
-                                solver  = 'MOSEK')
+                                solver  = "MOSEK")
 
         # Add input magnitude constraint (elevator angle limited to ±15°)
         mpc_params.add_input_magnitude_constraint(limit = self.max_input_bound, is_hard=True)
         mpc_params.add_general_state_constraints(Hx = self.map.workspace.A, bx = self.map.workspace.b,is_hard=True)
         for constraint in self.stl_constraints :
             mpc_params.add_general_state_time_constraints(Hx = constraint.H, bx = constraint.b, start_time = constraint.start, end_time = constraint.end, is_hard=True)
-
+        
+        mpc_params.reach_refererence_at_steady_state(False) # allows the reference to bereached without being in steady state
+        mpc_params.soften_tracking_constraint(penalty_weight = 10.)
 
         # Create the MPC object
-        return TimedMPC(mpc_params)
+        mpc = TimedMPC(mpc_params)
+
+        return mpc
 
 
 
@@ -129,17 +138,16 @@ class RRT:
         """Steer from one node towards another while checking barrier constraints."""
         
 
-        from_time  = from_node[2] 
-        from_state = from_node[:2]
-        to_state   = to_node[:2]
+        from_time  = from_node[self.TIME] 
+        from_state = from_node[self.STATE]
+        to_state   = to_node[self.STATE]
 
         #  Get trajectory between `from_node` and `to_node` in time `t_max`
         x_trj, u_trj,to_time = self.expand_mpc.get_state_and_control_trajectory(x0 = from_state ,t0 = from_time, reference = to_state)
         
-        new_node  = np.hstack((x_trj[:,-1], np.array(to_time)))
+        new_node        = np.hstack((x_trj[:,-1], to_time))
         is_in_collision = False
-        cost  = 0.
-        state = x_trj[:-1,:]
+        cost            = 0.
         
         obstacles : list[Polytope] = self.map.obstacles 
         for ii in range(x_trj.shape[1]): 
@@ -153,55 +161,62 @@ class RRT:
             
         return new_node, x_trj, is_in_collision, cost
 
+    
+    
+    def step(self):
+
+        rand_point         = self.random_node()
+        past_tree          = [ node if node[2] < rand_point[2] else node*1e6 for node in self.tree ]
+        self.kd_tree_past  = KDTree(past_tree) # KD-tree for nearest neighbour search. Each node is a 3D point (x, y, t)
+
+        nearest_node,nearest_index  = self.single_past_nearest(rand_point)
+
+        # Move towards the random point with limited direction
+        nearest_node_state = nearest_node[self.STATE]
+        rand_point_state   = rand_point[self.STATE]
+        direction          = rand_point_state - nearest_node_state
+        direction          = self.space_step_size * direction / np.linalg.norm(direction)
+        rand_point_state   = nearest_node_state + direction
+        rand_point         = np.hstack((rand_point_state, rand_point[self.TIME])) 
+        
+        try:
+            new_node, traj, is_in_collision,cost  = self.steer(nearest_node, rand_point)
+        except Exception as e:
+            print(f"Error in steering at iteration {self.iteration}, with exception: {e}")
+
+        if not is_in_collision:
+            self.tree.append(new_node)
+            self.parents.append(nearest_index)
+            self.cost.append(self.cost[nearest_index] + cost)
+            self.trajectories.append(traj)   
+
+
+            if new_node[self.TIME] >= self.max_task_time and self.cost[-1] < self.current_best_cost:
+                index = len(self.tree) - 1
+                path_traj = []
+                self.current_best_cost = self.cost[-1]
+                
+                while index != -1:
+                    path_traj.append(self.trajectories[index])
+                    index  = self.parents[index]
+
+                path_solution = RRTSolution()
+                path_solution["path_trj"]     = path_traj
+                path_solution["cost"]         = cost
+                path_solution["iter"]         = self.iteration 
+
+                self.solutions.append( path_solution)
+
+    
     def plan(self):
         """Run the RRT algorithm to find a path from start to goal with time constraints and barrier function."""
-        counter = 0
         for iteration in tqdm(range(self.max_iter)):
-
-            rand_point         = self.random_node()
-            past_tree          = [ node if node[2] < rand_point[2] else node*1e6 for node in self.tree ]
-            self.kd_tree_past  = KDTree(past_tree) # KD-tree for nearest neighbour search. Each node is a 3D point (x, y, t)
-
-            nearest_node,nearest_index  = self.single_past_nearest(rand_point)
-    
-            # Move towards the random point with limited direction
-            nearest_node_state = nearest_node[:2]
-            rand_point_state   = rand_point[:2]
-            direction          = rand_point_state - nearest_node_state
-            direction          = self.space_step_size * direction / np.linalg.norm(direction)
-            rand_point_state   = nearest_node[:2] + direction
-            rand_point         = np.hstack((rand_point_state, rand_point[2])) 
-            
+            self.iteration = iteration
             try:
-                new_node, traj, is_in_collision,cost  = self.steer(nearest_node, rand_point)
-            except :
-                print(f"Error in steering {counter}")
-                counter += 1
-                continue
+                self.step()
+            except Exception as e:
+                print(f"Error in planning at iteration {iteration}, with exception: {e}")
 
-            if not is_in_collision:
-                self.tree.append(new_node)
-                self.parents.append(nearest_index)
-                self.cost.append(self.cost[nearest_index] + cost)
-                self.trajectories.append(traj)   
-
-
-                if new_node[2] >= self.max_task_time and self.cost[-1] < self.current_best_cost:
-                    index = len(self.tree) - 1
-                    path_traj = []
-                    self.current_best_cost = self.cost[-1]
-                    
-                    while index != -1:
-                        path_traj.append(self.trajectories[index])
-                        index  = self.parents[index]
-
-                    path_solution = RRTSolution()
-                    path_solution["path_trj"]     = path_traj
-                    path_solution["cost"]         = cost
-                    path_solution["iter"]         = iteration
-
-                    self.solutions.append( path_solution)
-                
         return self.solutions
 
 
@@ -227,14 +242,14 @@ class RRT:
             for j,trj in enumerate(solution["path_trj"]):
                 x    = trj[0,:]
                 y    = trj[1,:]
-                time = trj[2,:]
+                # time = trj[2,:]
                 
                 if j == len(solution["path_trj"])-1:
                     ax.plot(x, y, lw=4, c = random_color, label="Cost: %.2f"%solution["cost"])
                 else :
                     ax.plot(x, y, lw=4, c = random_color)
                 # annotate the time at final point 
-                ax.annotate(f"t: {time[-1]:.2f}", (x[-1] +0.3 , y[-1]), textcoords="offset points", xytext=(0,10), ha='center')
+                # ax.annotate(f"t: {time[-1]:.2f}", (x[-1] +0.3 , y[-1]), textcoords="offset points", xytext=(0,10), ha='center')
            
             # find best trajectory in terms of cost
         if len(self.solutions) :
@@ -242,159 +257,167 @@ class RRT:
             for jj,trj in enumerate(best["path_trj"]):
                 x    = trj[0,:]
                 y    = trj[1,:]
-                time = trj[2,:]
+                # time = trj[2,:]
                 if jj == len(best["path_trj"])-1:
                     ax.plot(x, y, lw=4, c = "red", label="Best Cost: %.2f"%best["cost"])
                 else :
                     ax.plot(x, y, lw=4, c = "red")
                 # annotate the time at final point 
-                ax.annotate(f"t: {time[-1]:.2f}", (x[-1] +0.3 , y[-1]), textcoords="offset points", xytext=(0,10), ha='center', color="red")
+                # ax.annotate(f"t: {time[-1]:.2f}", (x[-1] +0.3 , y[-1]), textcoords="offset points", xytext=(0,10), ha='center', color="red")
 
             ax.plot(self.start_node[0], self.start_node[1], "go", markersize=10, label="Start")
             ax.legend()
-        plt.show()
+        
+        return fig, ax
     
 
 
 
-# #########################################################################################################################
-# #########################################################################################################################
-# class RRTStar(RRT):
-#     def __init__(self, step_controller  :LQRcbfControllerLogExp | MPCcbfControllerFreeEnd, 
-#                        rewire_controller:MPCcbfControllerFixedEnd,
-#                        start_state   :np.ndarray, 
-#                        barrier_function :BarrierFunction,
-#                        map              :Map,
-#                        max_task_time    :float,
-#                        max_iter         :int   = 100000, 
-#                        space_step_size  :float = 0.3, 
-#                        time_step_size   :float = 0.1,
-#                        rewiring_radius  :float = -1,
-#                        rewiring_ratio  :int   = 2,
-#                        bias_future_time :bool = True ) -> None :
+#########################################################################################################################
+#########################################################################################################################
+class RRTStar(RRT):
+    def __init__(self, start_state      :np.ndarray, 
+                       system           :LinearSystem,
+                       prediction_steps :int,
+                       stl_constraints  :list[TimedConstraint],
+                       max_input        :float,
+                       map              :Map,
+                       max_task_time    :float,
+                       max_iter         :int   = 100000, 
+                       space_step_size  :float = 0.3, 
+                       time_step_size   :float = 0.1,
+                       bias_future_time :bool  = True,
+                       rewiring_radius  :float = -1,
+                       rewiring_ratio   :int   = 2) -> None :
         
-#         super().__init__(step_controller, start_state, barrier_function, map, max_task_time, max_iter, space_step_size, time_step_size, bias_future_time)
+        super().__init__(start_state, 
+                            system ,
+                            prediction_steps,
+                            stl_constraints,
+                            max_input ,
+                            map,
+                            max_task_time,
+                            max_iter, 
+                            space_step_size,
+                            time_step_size ,
+                            bias_future_time)
         
-#         self.rewire_controller = rewire_controller
-#         self.rewire_controller.add_barrier(barrier_function)
-#         self.rewire_controller.set_cost_matrices(Q = np.eye(2)*10, R = np.eye(2))
-#         self.rewire_controller.setup_solver(horizon_time=self.time_step_size*5)
+        self.rewire_controller = self._get_mpc_controller_for_rewiring()
+        self.rewiring_ratio    = rewiring_ratio
+        self.kd_tree_future    = KDTree([self.start_node]) # KD-tree for nearest neighbour search. Each node is a 3D point (x, y, t)
+        
+        if rewiring_radius == -1:
+            self.rewiring_radius = 5*self.space_step_size
+        else :
+            self.rewiring_radius = rewiring_radius
 
-#         self.rewiring_ratio = rewiring_ratio
 
-#         self.kd_tree_future    = KDTree([self.start_node]) # KD-tree for nearest neighbour search. Each node is a 3D point (x, y, t)
-#         if rewiring_radius is -1:
-#             self.rewiring_radius = 5*self.space_step_size
-#         else :
-#             self.rewiring_radius = rewiring_radius
+    def _get_mpc_controller_for_rewiring(self) -> TimedMPC:
+        """
+        Get the MPC controller for the RRT rewiring
+        """
 
-#     def rewire(self) :
+        print("Initializing MPC controller for tree rewiring...")
+        # Define MPC parameters
+        Q = np.eye(self.system.size_state) * 10  # State penalty matrix
+        R = np.eye(self.system.size_input) * 1   # Input penalty matrix
 
-#         """Rewire the tree with the new node."""
-#         # Find the neighbors of the new node within a certain radius
-#         new_node_index = len(self.tree) - 1
-#         new_node       =  self.tree[new_node_index ] # take out the last node
+        # Create MPC parameters object
+        mpc_params = MPCProblem(system  = self.system, 
+                                horizon = self.prediction_steps, 
+                                Q       = Q, 
+                                R       = R, 
+                                solver  = "MOSEK")
 
-#         future_nodes   = [node  if node[2] > new_node[2]  else node*1e4  for node in self.tree]
-#         self.kd_tree_future = KDTree(future_nodes) # KD-tree for nearest neighbour search. Each node is a 3D point (x, y, t)
-#         nearest_indices = self.kd_tree_future.query_ball_point(new_node,r= self.rewiring_radius * (np.log(len(self.tree))/len(self.tree))**(1/2))
+        # Add input magnitude constraint (elevator angle limited to ±15°)
+        mpc_params.add_input_magnitude_constraint(limit = self.max_input_bound, is_hard=True)
+        mpc_params.add_general_state_constraints(Hx = self.map.workspace.A, bx = self.map.workspace.b,is_hard=True)
+        for constraint in self.stl_constraints :
+            mpc_params.add_general_state_time_constraints(Hx = constraint.H, bx = constraint.b, start_time = constraint.start, end_time = constraint.end, is_hard=True)
+        
+        
+        # terminal state constraint 
+        mpc_params.reach_refererence_at_steady_state(False) # allows the reference to bereached without being in steady state
 
-#         for neighbour_index in nearest_indices:
+        # Create the MPC object
+        mpc = TimedMPC(mpc_params)
 
-#             # do not recheck your own parent
-#             if neighbour_index == self.parents[new_node_index] :
-#                 continue
+        return mpc
 
-#             neighbour = self.tree[neighbour_index]
-#             # Check if the new node is a better parent than the current parent of the neighbour (heuristic)
-#             new_cost  = np.linalg.norm(neighbour[:2] - new_node[:2]) + self.cost[new_node_index]
-#             # attempt rewiring
-#             if new_cost < self.cost[neighbour_index]:
 
-#                 new_node_state = new_node[:2]
-#                 neighbour_state = neighbour[:2]
-#                 t_0 = new_node[-1]
-#                 neighbour_time = neighbour[-1]
 
-#                 # Rewire the tree
-#                 try :
-#                     traj,u_trj =  self.rewire_controller.bridge(x_0   = new_node_state, 
-#                                                                 x_ref = neighbour_state,
-#                                                                 t_0   = t_0 ,
-#                                                                 t_ref = neighbour_time) # trajectory given as triplets (x,y,t)
-#                 except :
-#                     continue
+    def rewire(self) :
 
-#                 is_in_collision  = False
-#                 actual_new_cost  = self.cost[new_node_index]
-#                 state            = traj[:-1,:]
+        """Rewire the tree with the new node."""
+        # Find the neighbors of the new node within a certain radius
+        last_node_index = len(self.tree) - 1
+        last_node       =  self.tree[last_node_index] # take out the last node
 
-#                 for ii,x in enumerate(state.T): 
+        future_nodes        = [node  if node[self.TIME] > last_node[self.TIME]  else node*1e4  for node in self.tree]
+        self.kd_tree_future = KDTree(future_nodes) # KD-tree for nearest neighbour search. Each node is a 3D point (x, y, t)
+        nearest_indices     = self.kd_tree_future.query_ball_point(last_node,r= self.rewiring_radius * (np.log(len(self.tree))/len(self.tree))**(1/2))
 
+        for neighbour_index in nearest_indices:
+
+            # do not recheck your own parent
+            if neighbour_index == self.parents[last_node_index] :
+                continue
+
+            neighbour = self.tree[neighbour_index]
+
+            last_node_state  = last_node[self.STATE]
+            last_node_time   = last_node[self.TIME]
+            
+            neighbour_state  = neighbour[self.STATE]
+            neighbour_time   = neighbour[self.TIME]
+            
+
+            # Check if the new node is a better parent than the current parent of the neighbour (heuristic)
+            expected_speed  = (np.linalg.norm(last_node_state - neighbour_state) + self.cost[last_node_index])/ (self.prediction_steps* self.system.dt + last_node_time)
+            
+            # attempt rewiring
+            if expected_speed < self.cost[neighbour_index]/neighbour_time:
+                # Rewire the tree
+                try :
+                    #  Get trajectory between `from_node` and `to_node` in time `t_max`
+                    x_trj, u_trj, new_final_time = self.rewire_controller.get_state_and_control_trajectory(x0 = last_node_state ,t0 = last_node_time, reference = neighbour_state)
+                except Exception as e:
+                    print(f"Error in rewiring at iteration {self.iteration}, with exception: {e}")
+                    continue
+
+                is_in_collision  = False
+                new_path_length  = self.cost[last_node_index]
+
+                for ii,x in enumerate(x_trj.T): 
+                    for obstacle in self.map.obstacles:
+                        if x in obstacle:
+                            is_in_collision = True
+                            break
                     
-#                     for obstacle in self.map.obstacles:
-#                         if (obstacle.x <= x[0] <= (obstacle.x + obstacle.w)) and (obstacle.y <= x[1] <= (obstacle.y + obstacle.h)):
-#                             is_in_collision = True
-#                             break
-                    
-#                     if ii >=1:
-#                         actual_new_cost += np.linalg.norm(state[:,ii] - state[:,ii-1])   
+                    if ii >=1:
+                        new_path_length += np.linalg.norm(x_trj[:,ii] - x_trj[:,ii-1])   
 
                 
-#                 if (not is_in_collision) and (actual_new_cost <= self.cost[neighbour_index]):
+                actual_new_speed = new_path_length/(self.prediction_steps* self.system.dt + last_node_time)
+
+                if (not is_in_collision) and (actual_new_speed <= self.cost[neighbour_index]/neighbour_time):
                     
-                    
-                    
-#                     self.parents[neighbour_index]      = new_node_index  # the new neighbour is the one that was just added
-#                     self.trajectories[neighbour_index] = traj
-#                     self.cost[neighbour_index]         = actual_new_cost
+                    self.parents[neighbour_index]      = last_node_index  # the new neighbour is the one that was just added
+                    self.trajectories[neighbour_index] = x_trj
+                    self.cost[neighbour_index]         = new_path_length
 
 
 
-#     def plan(self):
-#         """Run the RRT algorithm to find a path from start to goal with time constraints and barrier function."""
-#         for iteration in tqdm(range(self.max_iter)):
-
-#             rand_point         = self.random_node()
-#             past_tree        = [ node if node[2] < rand_point[2] else node*1e6 for node in self.tree ]
-#             self.kd_tree_past  = KDTree(past_tree) # KD-tree for nearest neighbour search. Each node is a 3D point (x, y, t)
-
-#             nearest_node,nearest_index  = self.single_past_nearest(rand_point)
-    
-#             # Move towards the random point with limited direction
-#             nearest_node_state = nearest_node[:2]
-#             rand_point_state   = rand_point[:2]
-#             direction          = rand_point_state - nearest_node_state
-#             direction          = self.space_step_size * direction / np.linalg.norm(direction)
-#             rand_point_state   = nearest_node[:2] + direction
-#             rand_point         = np.hstack((rand_point_state, rand_point[2])) 
-
-#             new_node, traj, is_in_collision,cost  = self.steer(nearest_node, rand_point)
-
-
-#             if not is_in_collision:
-#                 self.tree.append(new_node)
-#                 self.parents.append(nearest_index)
-#                 self.cost.append(self.cost[nearest_index] + cost)
-#                 self.trajectories.append(traj)  
-
-#                 if new_node[2] >= self.max_task_time and self.cost[-1] < self.current_best_cost:
-#                     index     = len(self.tree) - 1
-#                     path_traj = []
-#                     self.current_best_cost = self.cost[-1]
-                    
-#                     while index != -1:
-#                         path_traj.append(self.trajectories[index])
-#                         index  = self.parents[index]
-
-#                     path_solution = RRTSolution()
-#                     path_solution["path_trj"]     = path_traj
-#                     path_solution["cost"]         = self.current_best_cost
-#                     path_solution["iter"]         = iteration
-
-#                     self.solutions.append( path_solution)       
+    def plan(self):
+        """Run the RRT algorithm to find a path from start to goal with time constraints and barrier function."""
+        for iteration in tqdm(range(self.max_iter)):
+            self.iteration = iteration
+            try:
+                self.step()
+            except Exception as e:
+                print(f"Error in planning at iteration {iteration}, with exception: {e}")
             
-#             if iteration % self.rewiring_ratio  == 0:
-#                 self.rewire()           
+            if iteration % self.rewiring_ratio  == 0:
+                self.rewire()           
 
-#         return self.solutions
+        return self.solutions

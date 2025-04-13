@@ -6,10 +6,10 @@ from   openmpc.support import TimedConstraint
 from stl_tool.stl                     import GOp, FOp
 from stl_tool.stl.parameter_optimizer import TasksOptimizer
 from stl_tool.stl.predicate_models    import BoxPredicate
-from stl_tool.environment.map                 import Map
+from stl_tool.environment.map         import Map
 from stl_tool.polytope                import Box2d
 
-from stl_tool.planners import RRT
+from stl_tool.planners import RRT, RRTStar
 
 
 
@@ -82,7 +82,6 @@ ax.set_zlim([-30, 30])
 ax.scatter(x_0[0], x_0[1], 0, color='r', label='start')
 
 
-
 rrt_constraints          = []
 for tvc in time_varying_constraints:
     rrt_constraints.append(TimedConstraint(H     = tvc.H,
@@ -92,14 +91,16 @@ for tvc in time_varying_constraints:
 
 
 
-rrt_planner = RRT(start_state      = x_0,
-                  system           = system,
-                  prediction_steps = 10,
-                  stl_constraints  = rrt_constraints,
-                  map              = map,
-                  max_input        = 1000,
-                  max_task_time    = formula.max_horizon(),
-                  max_iter         = 1000,)
+rrt_planner = RRTStar(start_state      = x_0,
+                        system           = system,
+                        prediction_steps = 10,
+                        stl_constraints  = rrt_constraints,
+                        map              = map,
+                        max_input        = 1000,
+                        max_task_time    = formula.max_horizon(),
+                        max_iter         = 1000,
+                        bias_future_time = False,
+                        rewiring_radius  = 10)
 
 
 rrt_planner.plan()
