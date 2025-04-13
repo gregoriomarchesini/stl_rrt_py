@@ -1,14 +1,17 @@
 import numpy as np
-from   typing import Optional, Union
 import cvxpy as cp
-from   openmpc import LinearSystem
-from matplotlib import pyplot as plt
+
+from   typing     import Optional, Union
+from   matplotlib import pyplot as plt
 import json
 
 
-from stl_tool.stl.logic import Formula, AndOperator, Node, get_type_and_polytopic_predicate, OrOperator ,UOp, FOp, GOp
-from stl_tool.polytope  import Polytope
-from stl_tool.stl.utils import TimeInterval
+from .logic         import Formula, AndOperator, Node, get_type_and_polytopic_predicate, OrOperator ,UOp, FOp, GOp
+from .utils         import TimeInterval
+from .linear_system import ContinuousLinearSystem
+
+from ..polytope  import Polytope
+
 
 
 class BarrierFunction :
@@ -302,7 +305,7 @@ class TasksOptimizer:
         self._barriers         = barriers
         self._time_constraints = time_constraints
 
-    def _make_high_order_corrections(self, system : LinearSystem, k_gain : float ):
+    def _make_high_order_corrections(self, system : ContinuousLinearSystem, k_gain : float ):
 
         """
         High order barrier funcitons are required if a given predicate is not directly controllable.
@@ -319,8 +322,8 @@ class TasksOptimizer:
 
        
 
-        A = system.A_cont
-        B = system.B_cont
+        A = system.A
+        B = system.B
         I = np.eye(system.size_state)
 
         print("================================================")
@@ -432,14 +435,14 @@ class TasksOptimizer:
 
     
     
-    def optimize_barriers(self, input_bounds: Polytope ,system : LinearSystem, x_0 : np.ndarray, gain: float = 1.0) :
+    def optimize_barriers(self, input_bounds: Polytope ,system : ContinuousLinearSystem, x_0 : np.ndarray, gain: float = 1.0) :
         
         
         if input_bounds.is_open:
             raise ValueError("The input bounds are an open Polyhedron. Please provide a closed polytope")
         
-        if not isinstance(system, LinearSystem):
-            raise ValueError("The system must be a LinearSystem.")
+        if not isinstance(system, ContinuousLinearSystem):
+            raise ValueError("The system must be a ContinuousLinearSystem.")
         
         x_0 = x_0.flatten()
         if len(x_0) != self._workspace.num_dimensions:
@@ -456,11 +459,11 @@ class TasksOptimizer:
         self._make_high_order_corrections(system = system, k_gain = k_gain.value)
         
 
-        if system.A_cont is None or system.B_cont is None:
+        if system.A is None or system.B is None:
             raise ValueError("The system must posses the continuous time matrices in order to be applied in this framework. Make sure you system derives from a continuous time system by calling the method c2c of the class Linear System")
         
-        A = system.A_cont
-        B = system.B_cont
+        A = system.A
+        B = system.B
 
         constraints  :list[cp.Constraint]  = []
 
@@ -741,23 +744,3 @@ class TimeVaryingConstraint:
         ax.set_xlabel('x')
         ax.set_ylabel('y')
         
-    
-    
-
-    
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

@@ -1,17 +1,11 @@
 from   matplotlib import pyplot as plt
 import numpy as np
-from   openmpc import LinearSystem
-from   openmpc.support import TimedConstraint
 
-from stl_tool.stl                     import GOp, FOp
-from stl_tool.stl.parameter_optimizer import TasksOptimizer
-from stl_tool.stl.predicate_models    import BoxPredicate
-from stl_tool.environment.map                 import Map
+from stl_tool.stl                     import GOp, FOp, TasksOptimizer, BoxPredicate, ContinuousLinearSystem
+from stl_tool.environment.map         import Map
 from stl_tool.polytope                import Box2d
 
 from stl_tool.planners import RRT
-
-
 
 
 ##########################################################
@@ -33,7 +27,7 @@ map.add_obstacle(Box2d(x = 0,y = -2,size = 1.5))
 ##########################################################
 A             = np.eye(2)*0.
 B             = np.eye(2)
-system        = LinearSystem.c2d(A, B, dt = 0.1)
+system        = ContinuousLinearSystem(A = A, B = B)
 max_input     = 3.4
 input_bounds  = Box2d(x = 0.,y = 0.,size = max_input*2) 
 
@@ -83,19 +77,10 @@ ax.scatter(x_0[0], x_0[1], 0, color='r', label='start')
 
 
 
-rrt_constraints          = []
-for tvc in time_varying_constraints:
-    rrt_constraints.append(TimedConstraint(H     = tvc.H,
-                                           b     = tvc.b, 
-                                           start = tvc.start_time,
-                                           end   = tvc.end_time))
-
-
-
 rrt_planner = RRT(start_state      = x_0,
                   system           = system,
                   prediction_steps = 10,
-                  stl_constraints  = rrt_constraints,
+                  stl_constraints  = time_varying_constraints ,
                   map              = map,
                   max_input        = 1000,
                   max_task_time    = formula.max_horizon(),

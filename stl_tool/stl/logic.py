@@ -3,8 +3,10 @@ from matplotlib import pyplot as plt
 import matplotlib.patches as patches
 from matplotlib import rcParams
 import numpy as np
-from stl_tool.polytope.polytope import Polytope
-from stl_tool.stl.utils import TimeInterval
+
+
+from ..polytope import Polytope
+from .utils import TimeInterval
 
 NodeID     = int
 BIG_NUMBER = 1E8

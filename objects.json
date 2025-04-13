@@ -1,0 +1,52 @@
+[
+  {
+    "name": "obstacle_1",
+    "type": "obstacle",
+    "center_x": 0.853911594802943,
+    "center_y": 6.419431793537194,
+    "center_z": 1.0,
+    "size_x": 0.8458035133376711,
+    "size_y": 1.7132942962481028,
+    "size_z": 2.0
+  },
+  {
+    "name": "obstacle_2",
+    "type": "obstacle",
+    "center_x": 5.310645492005285,
+    "center_y": 5.129039253957926,
+    "center_z": 1.0,
+    "size_x": 0.8241162437649088,
+    "size_y": 1.6048579483842982,
+    "size_z": 2.0
+  },
+  {
+    "name": "obstacle_3",
+    "type": "obstacle",
+    "center_x": 8.19505234518247,
+    "center_y": 3.632617653437431,
+    "center_z": 1.0,
+    "size_x": 0.2168726957276057,
+    "size_y": 2.038603339839513,
+    "size_z": 2.0
+  },
+  {
+    "name": "interest_4",
+    "type": "interest",
+    "center_x": 1.9599623430137432,
+    "center_y": 1.9952288006939911,
+    "center_z": 1.0,
+    "size_x": 2.0602906094122746,
+    "size_y": 0.9325525916287152,
+    "size_z": 2.0
+  },
+  {
+    "name": "interest_5",
+    "type": "interest",
+    "center_x": 5.635954535596697,
+    "center_y": 8.165256994144437,
+    "center_z": 1.0,
+    "size_x": 1.3879852526566907,
+    "size_y": 1.0843634786380392,
+    "size_z": 2.0
+  }
+]

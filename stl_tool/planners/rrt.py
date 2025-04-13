@@ -9,15 +9,14 @@ from   scipy.spatial   import KDTree
 from openmpc.mpc     import TimedMPC, MPCProblem
 from openmpc.models  import LinearSystem
 from openmpc.support import TimedConstraint
+from openmpc.models  import LinearSystem
 
 
 from stl_tool.environment.map  import Map
-from stl_tool.polytope import Polytope
+from stl_tool.polytope         import Polytope
+from stl_tool.stl.parameter_optimizer import TimeVaryingConstraint
+from stl_tool.stl.linear_system import ContinuousLinearSystem
 
-
-# from src.linear.src.systems import MPCcbfControllerFixedEnd, MPCcbfControllerFreeEnd, LQRcbfControllerLogExp, LQRController
-# from src.linear.src.stl     import BarrierFunction,BIG_NUMBER
-# from src.linear.src.env     import Map, Obstacle
 
 
 BIG_NUMBER = 1e10
@@ -30,9 +29,9 @@ class RRTSolution(TypedDict):
     
 class RRT:
     def __init__(self, start_state      :np.ndarray, 
-                       system           :LinearSystem,
+                       system           :ContinuousLinearSystem,
                        prediction_steps :int,
-                       stl_constraints  :list[TimedConstraint],
+                       stl_constraints  :list[TimeVaryingConstraint],
                        max_input        :float,
                        map              :Map,
                        max_task_time    :float,
@@ -41,14 +40,15 @@ class RRT:
                        time_step_size   :float = 0.1,
                        bias_future_time :bool = True) -> None :
         
-        self.system            = system
-        self.start_time        = 0.                                         # initial time
-        self.start_cost        = 0.                                         # start cost of the initial node
-        self.start_node        = np.array([*start_state, self.start_time])  # Start node (node = (state,time))
-        self.map               = map                                        # map containing the obstacles
-        self.max_iter          = max_iter                                   # maximum number of iterations
-        self.space_step_size   = space_step_size                            # space time size
-        self.time_step_size    = time_step_size                             # maximum step size of propagation for the MPC
+        
+        self.system            = LinearSystem.c2d(system.A, system.B, dt = system.dt) # convert to discrete time system of openmpc
+        self.start_time        = 0.                                                   # initial time
+        self.start_cost        = 0.                                                   # start cost of the initial node
+        self.start_node        = np.array([*start_state, self.start_time])            # Start node (node = (state,time))
+        self.map               = map                                                  # map containing the obstacles
+        self.max_iter          = max_iter                                             # maximum number of iterations
+        self.space_step_size   = space_step_size                                      # space time size
+        self.time_step_size    = time_step_size                                       # maximum step size of propagation for the MPC
         self.space_time_dist   = np.sqrt(self.space_step_size**2 + self.time_step_size**2) # distance in the nodes domain
         self.prediction_steps  = prediction_steps
         self.max_input_bound   = max_input
@@ -71,10 +71,10 @@ class RRT:
         self.TIME = 2
         self.STATE = [0,1]
 
-        self.obtained_paths    = []   
+        self.obtained_paths    = []  
         self.new_nodes         = []  
-        self.sampled_nodes     = []    
-        self.solutions         = []    
+        self.sampled_nodes     = []  
+        self.solutions         = []  
 
         self.iteration         = 0
 
@@ -100,7 +100,17 @@ class RRT:
         # Add input magnitude constraint (elevator angle limited to ±15°)
         mpc_params.add_input_magnitude_constraint(limit = self.max_input_bound, is_hard=True)
         mpc_params.add_general_state_constraints(Hx = self.map.workspace.A, bx = self.map.workspace.b,is_hard=True)
-        for constraint in self.stl_constraints :
+
+        # convertion into openmpc constraints
+        rrt_constraints    :list[TimedConstraint]        = []
+        for tvc in self.stl_constraints:
+            rrt_constraints.append(TimedConstraint(H     = tvc.H,
+                                                   b     = tvc.b, 
+                                                   start = tvc.start_time,
+                                                   end   = tvc.end_time))
+    
+
+        for constraint in rrt_constraints :
             mpc_params.add_general_state_time_constraints(Hx = constraint.H, bx = constraint.b, start_time = constraint.start, end_time = constraint.end, is_hard=True)
         
         mpc_params.reach_refererence_at_steady_state(False) # allows the reference to bereached without being in steady state
