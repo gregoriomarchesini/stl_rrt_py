@@ -176,9 +176,9 @@ class Polytope:
             return 0.0
     
     
-    def plot(self, ax=None, color='b', edgecolor='k', alpha=1.0, linestyle='-', showVertices=False):
+    def plot(self, ax=None, color='b', edgecolor='k', alpha=1.0, linestyle='-', showVertices=False, projection_dims : list[int] = None):
         """
-        Plot the polytope using Matplotlib.
+        Plot the polytope using Matplotlib. Only 2d or 3d plots are allowed. 
 
         Args:
             ax: Matplotlib axis object.
@@ -191,35 +191,47 @@ class Polytope:
         # Get vertices for plotting
         if not self.is_open:
             vertices = self.vertices
-        else:
-            
-            big_number = 1000
+        else: # we draw an hyperplane by shoting the vertices in the direction of the rays
+            big_number = 100
             new_vertices = []
             for vertex in self.vertices:
                 shiften_vertices = vertex + big_number * self.rays
                 new_vertices.append(shiften_vertices)
-            
-            
-            vertices = np.vstack((self.vertices, *shiften_vertices))
+            # create new list of vertices with the shifted ones
+            vertices = np.vstack((self.vertices, *new_vertices))
 
         if len(vertices) == 0:
             return  # Nothing to plot if no vertices
 
-        dim = vertices.shape[1]
+        # define plotting dimensions
+        n_dim = vertices.shape[1]
+        projection_dims = list(set(projection_dims)) # remove duplicates 
 
-        if dim > 3:
-            raise ValueError("Cannot plot polytopes with more than 3 dimensions.")
+        if projection_dims is None or len(projection_dims) == 0:
+            projection_dims = [i for i in range(min(3, n_dim))]  # Default to first 3 dimensions
+        else :
+            if len(projection_dims) > 3:
+                raise ValueError("Cannot plot polytopes with more than 3 dimensions.")
+            if len(projection_dims) > n_dim:
+                raise ValueError(f"Polytope does not have enough dimensions for the given list.")
+        
+        try :
+            C = selection_matrix_from_dims(n_dims = n_dim, selected_dims=projection_dims)
+        except IndexError as e:
+            raise ValueError(f"you provide at least one dimension outside the dimensionality of the polytope. Raise exception issue: {e}")
 
-         # If no axis is provided, create a new figure
+        vertices = (C @ vertices.T).T  # shape [num_vertices, dim]
+        
+        # If no axis is provided, create a new figure
         if ax is None:
             fig = plt.figure()
-            if dim == 3:
+            if len(projection_dims) == 3:
                 ax = fig.add_subplot(111, projection='3d')  # Ensure 3D projection
             else:
                 ax = fig.add_subplot(111)
         else:
             # If the provided axis is 2D but the polytope is 3D, convert it to 3D
-            if dim == 3 and not hasattr(ax, "get_proj"):
+            if len(projection_dims) == 3 and not hasattr(ax, "get_proj"):
                 fig = ax.figure  # Get the current figure
                 # save limits
                 xlim = ax.get_xlim()
@@ -232,15 +244,17 @@ class Polytope:
                 ax.set_xlim(xlim)   
                 ax.set_ylim(ylim)
                 ax.set_zlim(xlim)
+        
+        # create convex hull
         try:
-            hull = ConvexHull(vertices)
+            hull          = ConvexHull(vertices)
             hull_vertices = vertices[hull.vertices]
         except Exception as e:
             hull_vertices = vertices  # Fallback to raw vertices if hull fails
             print(f"Error computing convex hull: {e}")
 
 
-        if dim == 2:
+        if len(projection_dims)== 2:
             # 2D Polytope Plotting
             ax.plot(np.append(hull_vertices[:, 0], hull_vertices[0, 0]),
                     np.append(hull_vertices[:, 1], hull_vertices[0, 1]),
@@ -251,7 +265,7 @@ class Polytope:
             if showVertices:
                 ax.plot(hull_vertices[:, 0], hull_vertices[:, 1], 'ro')
 
-        elif dim == 3:
+        elif len(projection_dims) == 3:
             # 3D Polyhedron Plotting
             faces = [hull.simplices[i] for i in range(len(hull.simplices))]
             poly3d = [[vertices[i] for i in face] for face in faces]
@@ -309,8 +323,10 @@ class Polytope:
         reduced_b = reduced_array[:, 0]    # First column corresponds to b
 
         # Create a new polytope in the projected space
-        projected_polytope = Polytope(reduced_A[:, dims], reduced_b)
-
+        try:
+            projected_polytope = Polytope(reduced_A[:, dims], reduced_b)
+        except IndexError as e:
+            raise ValueError(f"Invalid dimensions for projection of polytope that is {self.num_dimensions}-dimensional: {dims}. Error: {e}")
         # Remove redundancies from the new polytope
         projected_polytope.remove_redundancies()
 
@@ -424,7 +440,8 @@ class Polytope:
     
     def get_inflated_polytope_to_dimension(self, dim:int):
         """
-        Get creates a polytope with the given dimension out of the lower dimension polytope by expanding the A matrix 
+        Creates a polytope with the given dimension out of the lower dimension polytope by expanding the A matrix on the right with additional zeros.
+        This is useful for example to expand the constrants on the position of a double integrator to an appropriate dimension
         """
 
         # Get the current dimensions of the polytope
@@ -582,7 +599,25 @@ def concatenate_diagonally(*polytopes: Polytope ):
 
     return Polytope(A, b)
 
+def selection_matrix_from_dims(n_dims :int , selected_dims : list[int]|int ) :
+    """
+    Create a selection matrix to select specific dimensions from a higher-dimensional space.
+    Args:
+        n_dims: int
+            Total number of dimensions.
+        selected_dims: list[int] | int
+            Indices of the dimensions to select.
+    Returns:
+        numpy.ndarray: Selection matrix.
+    """
+    if isinstance(selected_dims, int):
+        selected_dims = [selected_dims]
 
+    selection_matrix = np.zeros((len(selected_dims), n_dims))
+    for i, dim in enumerate(selected_dims):
+        selection_matrix[i, dim] = 1
+
+    return selection_matrix
 
 
 if __name__ == "__main__":

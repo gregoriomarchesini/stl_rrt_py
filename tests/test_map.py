@@ -1,43 +1,32 @@
-from stl_tool.stl import Formula, GOp, FOp
-from stl_tool.stl.parameter_optimizer import TasksOptimizer
-from stl_tool.stl.predicate_models import BoxPredicate
-from stl_tool.environment.map import Map2d
-from stl_tool.polytope import Box2d, Box3d, Polytope
-from openmpc import LinearSystem
-
-from matplotlib import pyplot as plt
+from   matplotlib import pyplot as plt
 import numpy as np
 
-box_predicate  = BoxPredicate(n_dim=2, size = 3, center = np.array([0, 0]))
-box_predicate1 = BoxPredicate(n_dim=2, size = 3, center = np.array([2, 0]))
-
-box_predicate1.plot(alpha = 0.3)
-
-formula = ((GOp(2,4) >> box_predicate1) & (GOp(10,15) >> box_predicate1)) & (GOp(18,20) >> (box_predicate & box_predicate))  & (FOp(25,30) >> box_predicate)
-
-work_space = Box2d(0, 0, 10, 10)
-
-
-scheduler = TasksOptimizer(formula, workspace=work_space)
-scheduler.make_time_schedule()
-scheduler.plot_time_schedule()
+from stl_tool.stl                     import GOp, FOp, TasksOptimizer, BoxBound, ContinuousLinearSystem
+from stl_tool.environment.map         import Map
+from stl_tool.polytope                import Box2d, BoxNd, Box3d
 
 
 
+
+workspace = BoxNd(n_dim= 4, size = [15,15,4,4])
+map4d       = Map(workspace = workspace)
 
 # obstacles
 obstacles = [
-    Box2d(3, 3, 5, 1),
-    Box2d(5, 5, 2, 2),
-    Box2d(7, 7, 1, 1),
+    Box3d(x = 3,y=3, z= 3, size = [5, 1, 3]),
+    Box3d(x = 5,y=5, z= 3, size = [2, 2, 3]),
+    Box3d(x = 7,y=7, z= 3, size = [1, 1, 3]),
 ]
 
-# create map
-map = Map2d(x_lim=(-10, 10), y_lim=(-10, 10))
-map.add_obstacle(obstacles)
-# draw
-map.draw_formula_predicate(formula)
-formula.show_graph()
+map4d.add_obstacle(obstacles)
+map4d.draw(projection_dim=[0,1,4])
+
+# # create map
+# map = Map2d(x_lim=(-10, 10), y_lim=(-10, 10))
+# map.add_obstacles(obstacles)
+# # draw
+# map.draw_formula_predicate(formula)
+# formula.show_graph()
 plt.show()
 
 

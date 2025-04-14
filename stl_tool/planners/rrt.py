@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 from   typing          import TypedDict
 from   tqdm            import tqdm
 from   scipy.spatial   import KDTree
+from scipy.interpolate import BSpline
 
 from openmpc.mpc     import TimedMPC, MPCProblem
 from openmpc.models  import LinearSystem
@@ -40,7 +41,7 @@ class RRT:
                        time_step_size   :float = 0.1,
                        bias_future_time :bool = True) -> None :
         
-        
+
         self.system            = LinearSystem.c2d(system.A, system.B, dt = system.dt) # convert to discrete time system of openmpc
         self.start_time        = 0.                                                   # initial time
         self.start_cost        = 0.                                                   # start cost of the initial node
@@ -431,3 +432,129 @@ class RRTStar(RRT):
                 self.rewire()           
 
         return self.solutions
+    
+
+
+
+class BisplineRRT(RRT):
+    def __init__(self, start_state      :np.ndarray, 
+                       system           :ContinuousLinearSystem,
+                       prediction_steps :int,
+                       stl_constraints  :list[TimeVaryingConstraint],
+                       max_input        :float,
+                       map              :Map,
+                       max_task_time    :float,
+                       max_iter         :int   = 100000, 
+                       space_step_size  :float = 0.3, 
+                       time_step_size   :float = 0.1,
+                       bias_future_time :bool = True) -> None :
+        
+        
+        self.system            = LinearSystem.c2d(system.A, system.B, dt = system.dt) # convert to discrete time system of openmpc
+        self.start_time        = 0.                                                   # initial time
+        self.start_cost        = 0.                                                   # start cost of the initial node
+        self.start_node        = np.array([*start_state, self.start_time])            # Start node (node = (state,time))
+        self.map               = map                                                  # map containing the obstacles
+        self.max_iter          = max_iter                                             # maximum number of iterations
+        self.space_step_size   = space_step_size                                      # space time size
+        self.time_step_size    = time_step_size                                       # maximum step size of propagation for the MPC
+        self.space_time_dist   = np.sqrt(self.space_step_size**2 + self.time_step_size**2) # distance in the nodes domain
+        self.prediction_steps  = prediction_steps
+        self.max_input_bound   = max_input
+        self.stl_constraints   = stl_constraints
+
+        self.tree              = [self.start_node]
+        self.current_best_cost = BIG_NUMBER
+        self.cost              = [0.]
+        self.trajectories      = [self.start_node[:,np.newaxis]]
+        self.time_trajectories = [self.start_time]
+        self.parents           = [-1]
+        
+        
+        self.expand_mpc        = self._get_spline_interplator_for_expansion() # MPC controller for the RRT expansion
+        self.max_task_time     = max_task_time
+        self.kd_tree_past      = KDTree([self.start_node]) 
+        self.bias_future_time  = bias_future_time
+        
+        
+        self.TIME = 2
+        self.STATE = [0,1]
+
+        self.obtained_paths    = []  
+        self.new_nodes         = []  
+        self.sampled_nodes     = []  
+        self.solutions         = []  
+
+        self.iteration         = 0
+
+
+
+    def _get_spline_interplator_for_expansion(self):
+        """
+        Get the MPC controller for the RRT expansion
+        """
+
+        def generate_bspline(p_start, p_end, t_start, t_end, num_points=20):
+            """
+            Generate a B-spline with 4 control points between start and end points in space-time
+            p_start: starting point in space (x,y,z)
+            p_end: ending point in space (x,y,z)
+            t_start: starting time
+            t_end: ending time
+            """
+            # Combine space and time dimensions
+            start = np.append(p_start, t_start)
+            end = np.append(p_end, t_end)
+            
+            # Create 4 control points (including start and end)
+            # You might want to add some intermediate points for smoother curves
+            ctrl_pts = np.array([
+                start,
+                start + 0.33*(end - start),
+                start + 0.67*(end - start),
+                end
+            ])
+            
+            # Create knot vector for cubic B-spline (degree=3)
+            knots = np.array([0, 0, 0, 0, 1, 1, 1, 1])
+            
+            # Create B-spline object
+            degree = 3
+            spline = BSpline(knots, ctrl_pts, degree)
+            
+            # Evaluate at parameter values
+            t = np.linspace(0, 1, num_points)
+            trajectory = spline(t)
+            
+            return trajectory[:, :3], trajectory[:, 3]  # space coords, time coords
+
+        return generate_bspline
+
+    
+    def steer(self, from_node : np.ndarray, to_node : np.ndarray):
+        """Steer from one node towards another while checking barrier constraints."""
+        
+
+        from_time  = from_node[self.TIME] 
+        from_state = from_node[self.STATE]
+        to_state   = to_node[self.STATE]
+
+        #  Get trajectory between `from_node` and `to_node` in time `t_max`
+        x_trj, u_trj,to_time = self.expand_mpc.get_state_and_control_trajectory(x0 = from_state ,t0 = from_time, reference = to_state)
+        
+        new_node        = np.hstack((x_trj[:,-1], to_time))
+        is_in_collision = False
+        cost            = 0.
+        
+        obstacles : list[Polytope] = self.map.obstacles 
+        for ii in range(x_trj.shape[1]): 
+            for obstacle in obstacles:
+                if x_trj[:,ii] in obstacle:
+                    is_in_collision = True
+                    break
+            
+            if ii >=1:
+                cost += np.linalg.norm(x_trj[:,ii] - x_trj[:,ii-1])   
+            
+        return new_node, x_trj, is_in_collision, cost
+    

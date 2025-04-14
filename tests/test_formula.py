@@ -1,12 +1,12 @@
 from stl_tool.stl import Formula, GOp, FOp
 from stl_tool.stl.parameter_optimizer import TasksOptimizer
-from stl_tool.stl.predicate_models import BoxPredicate
+from stl_tool.stl.predicate_models import BoxBound
 
 
 from matplotlib import pyplot as plt
 import numpy as np
 
-box_predicate = BoxPredicate(n_dim=2, size = 3, center = np.array([0, 0]))
+box_predicate = BoxBound(n_dim=2, size = 3, center = np.array([0, 0]))
 
 
 # fig,ax = plt.subplots(figsize=(8, 8))

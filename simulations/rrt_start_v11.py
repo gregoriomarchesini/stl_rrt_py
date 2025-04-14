@@ -1,7 +1,7 @@
 from   matplotlib import pyplot as plt
 import numpy as np
 
-from stl_tool.stl                     import GOp, FOp, TasksOptimizer, BoxPredicate, ContinuousLinearSystem
+from stl_tool.stl                     import GOp, FOp, TasksOptimizer, BoxBound, ContinuousLinearSystem
 from stl_tool.environment.map         import Map
 from stl_tool.polytope                import Box2d
 
@@ -36,9 +36,9 @@ input_bounds  = Box2d(x = 0.,y = 0.,size = max_input*2)
 # STL specifications
 ##########################################################
 center         = np.array([-0., 0.])
-box_predicate  = BoxPredicate(n_dim = 2, size = 2.8, center = center)
-box2_predicate = BoxPredicate(n_dim = 2, size = 2.8, center = center + np.array([-3,-3.]))
-box3_predicate = BoxPredicate(n_dim = 2, size = 2.8, center = center + np.array([3.,3.]))
+box_predicate  = BoxBound(n_dim = 2, size = 2.8, center = center)
+box2_predicate = BoxBound(n_dim = 2, size = 2.8, center = center + np.array([-3,-3.]))
+box3_predicate = BoxBound(n_dim = 2, size = 2.8, center = center + np.array([3.,3.]))
 formula        = (GOp(10.,14.) >> box_predicate)  & (FOp(17.,20.) >> box2_predicate) & (FOp(29.,30.) >> box3_predicate)
 map.draw_formula_predicate(formula = formula)
 formula.show_graph()

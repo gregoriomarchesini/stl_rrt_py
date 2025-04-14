@@ -5,75 +5,148 @@ from ..polytope import Polytope
 
 
 
-class GEQ(Predicate):
+class Geq(Predicate):
     """
-    Greater than predicate in the form x[index] >= b
+    Predicate defining a lower bound on the state as x[dims] >= b
     """
-    def __init__(self, dim :int, index:int, bound:float, name:str | None = None) :
+    def __init__(self, dims : list[int] | int, bound:float, name:str | None = None) :
+        """
+        :param dims: list of dimensions to apply the predicate
+        :type dims: list[int]
+        :param bound: lower bound
+        :type bound: float
+        :param name: name of the predicate
+        :type name: str
+        """
 
-        a        = np.zeros(dim)
-        a[index] = 1.
-        b        = bound
+        if isinstance(dims, int):
+            dims = [dims]
+        
+
+        A = np.eye(len(dims))
+        b = np.array([bound]*len(dims))
         
         # polytope is always defined as Ax<= b
-        polytope = Polytope(-a,-b)
-        super().__init__(polytope,name)
+        polytope = Polytope(-A,-b)
+        super().__init__(polytope = polytope, dims = dims, name = name)
         
 
-class LEQ2d(Predicate):
+class Leq(Predicate):
     """
-    Less than predicate in the form x[index] <= b
+    Predicate defining an upper bound on the state as x[dims] <= b
     """
-    def __init__(self, dim :int, index:int, bound:float, name:str | None = None) :
+    def __init__(self, dims : list[int] | int, bound:float, name:str | None = None) :
+        """
+        :param dims: list of dimensions to apply the predicate
+        :type dims: list[int]
+        :param bound: upper bound
+        :type bound: float
+        :param name: name of the predicate
+        :type name: str
+        """
 
-        a        = np.zeros(dim)
-        a[index] = 1.
-        b        = bound
+        if isinstance(dims, int):
+            dims = [dims]
+        
 
-        polytope = Polytope(a,b)
-        super().__init__(polytope,name)
+        A = np.eye(len(dims))
+        b = np.array([bound]*len(dims))
+        
+        # polytope is always defined as Ax<= b
+        polytope = Polytope(A,b)
+        super().__init__(polytope = polytope, dims = dims, name = name)
 
 
 
-class BoxPredicate(Predicate):
+class BoxBound(Predicate):
     """
-    Polytope representing an n-dimensional box.
+    Represents a box region in the given dimensions of the state space
     """
 
-    def __init__(self, n_dim: int, size: float, center: np.ndarray = None, name:str | None = None):
+    def __init__(self, dims: list[int], size: float|list[float], center: np.ndarray = None, name:str | None = None):
+        """
+        :param dims: list of dimensions to apply the predicate
+        :type dims: list[int]
+        :param size: size of the box
+        :type size: float or list[float]
+        :param center: center of the box
+        :type center: np.ndarray
+        :param name: name of the predicate
+        :type name: str
+        """
         
         if center is None:
-            center = np.zeros(n_dim)
-            
-        center = center.flatten()  # Ensure center is a 1D array
-        if center.shape[0] != n_dim:
-            raise ValueError(f"The center must be a {n_dim}D vector")
+            center = np.zeros(len(dims))
+        else:
+            center = np.array(center).flatten()
+            if center.shape[0] != len(dims):
+                raise ValueError(f"The center must be a {len(dims)}D vector")
+        
+        if isinstance(size, float):
+            size = np.array([size] * 2*len(dims))
+        else:
+            size = np.hstack((np.array(size).flatten(),np.array(size).flatten()))
+            if size.shape[0] != len(dims):
+                raise ValueError(f"The size must be a {len(dims)}D vector")
+       
 
-        b = size / 2
-        A = np.vstack((np.eye(n_dim), -np.eye(n_dim)))
+        b     = size / 2
+        A     = np.vstack((np.eye(len(dims)), -np.eye(len(dims))))
         b_vec = b + A @ center  # Ensuring proper half-space representation
 
-
         polytope = Polytope(A, b_vec)
-        super().__init__(polytope,name)
+        super().__init__(polytope = polytope, dims = dims, name = name)
+
+class BoxBound2d(BoxBound):
+    """
+    Polytope representing a 2D box on the first two dimension of the state space. 
+    This is just a convenience class for BoxBound. It is equivalent to BoxBound(dims=[0, 1], size=size, center=center)
+    """
+
+    def __init__(self, size: float|list[float], center: np.ndarray = None, name:str | None = None):
+        """
+        :param size: size of the box
+        :type size: float or list[float]
+        :param center: center of the box
+        :type center: np.ndarray
+        :param name: name of the predicate
+        :type name: str
+        """
+        super().__init__(dims=[0, 1], size=size, center=center, name=name)
+
+class BoxBound3d(BoxBound):
+    """
+    Polytope representing a 3D box on the first three dimension of the state space.
+    This is just a convenience class for BoxBound. It is equivalent to BoxBound(dims=[0, 1, 2], size=size, center=center)
+    """
+    def __init__(self, size: float|list[float], center: np.ndarray = None, name:str | None = None):
+        """
+        :param size: size of the box
+        :type size: float or list[float]
+        :param center: center of the box
+        :type center: np.ndarray
+        :param name: name of the predicate
+        :type name: str
+        """
+        super().__init__(dims=[0, 1, 2], size=size, center=center, name=name)
 
 
 if __name__ == "__main__":
 
-    import matplotlib.pyplot as plt
+    # import matplotlib.pyplot as plt
 
-    # Example usage
-    dim = 3
-    index = 1
-    bound = 5.0
+    # # Example usage
+    # dim = 3
+    # index = 1
+    # bound = 5.0
 
-    geq_pred = GEQ(dim, index, bound)
-    leq_pred = LEQ2d(dim, index, bound)
+    # geq_pred = Geq(dim, index, bound)
+    # leq_pred = Leq(dim, index, bound)
     
     
-    geq_pred.plot()
+    # geq_pred.plot()
 
-    # box_pred = BoxPredicate(n_dim=3, size=2.0, center=np.array([1.0, 1.0, 1.0]))
-    # print("Box Predicate:", box_pred.polytope)
+    # # box_pred = BoxPredicate(n_dim=3, size=2.0, center=np.array([1.0, 1.0, 1.0]))
+    # # print("Box Predicate:", box_pred.polytope)
 
-    plt.show()
+    # plt.show()

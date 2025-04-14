@@ -5,7 +5,7 @@ from   openmpc.support import TimedConstraint
 
 from stl_tool.stl                     import GOp, FOp
 from stl_tool.stl.parameter_optimizer import TasksOptimizer
-from stl_tool.stl.predicate_models    import BoxPredicate
+from stl_tool.stl.predicate_models    import BoxBound
 from stl_tool.environment.map         import Map
 from stl_tool.polytope                import Box2d
 
@@ -44,10 +44,10 @@ input_bounds  = Box2d(x = 0.,y = 0.,size = max_input*2)
 # # STL specifications
 # ##########################################################
 
-p1 = BoxPredicate(n_dim =2, size= 2,center= np.array([1.5,1.7]))
-p2 = BoxPredicate(n_dim =2, size= 2,center= np.array([1.5,7.7]))
-p3 = BoxPredicate(n_dim =2, size= 2,center= np.array([7.,7.7]) )
-p4 = BoxPredicate(n_dim =2, size= 2,center= np.array([8.2,3.5]))
+p1 = BoxBound(n_dim =2, size= 2,center= np.array([1.5,1.7]))
+p2 = BoxBound(n_dim =2, size= 2,center= np.array([1.5,7.7]))
+p3 = BoxBound(n_dim =2, size= 2,center= np.array([7.,7.7]) )
+p4 = BoxBound(n_dim =2, size= 2,center= np.array([8.2,3.5]))
 
 formula   = (FOp(5,15) >> p1) & (FOp(13,20) >> p2)  & (FOp(16,20) >> p3)  & (GOp(24,28) >> p4)
 

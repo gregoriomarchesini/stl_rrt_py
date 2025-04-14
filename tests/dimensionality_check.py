@@ -1,6 +1,6 @@
 from stl_tool.stl import Formula, GOp, FOp
 from stl_tool.stl.parameter_optimizer import TasksOptimizer
-from stl_tool.stl.predicate_models import BoxPredicate
+from stl_tool.stl.predicate_models import BoxBound
 from stl_tool.polytope import Box2d,Box3d, BoxNd
 
 
@@ -12,7 +12,7 @@ from openmpc import LinearSystem
 solver_time = []
 for dimension in range(2,10) :
 
-    box_predicate = BoxPredicate(n_dim=dimension, size = 4)
+    box_predicate = BoxBound(n_dim=dimension, size = 4)
     workspace     = BoxNd(n_dim = dimension, size = 10)
     input_bounds  = BoxNd(n_dim = dimension, size = 10)
 

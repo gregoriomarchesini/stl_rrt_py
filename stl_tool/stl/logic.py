@@ -43,10 +43,16 @@ class PredicateNode(Node):
     """
     Predicate Node of the formula tree. It contains the predicate function that defines the barrier function of the node.
     """
-    def __init__(self, polytope: Polytope, name:str | None = None) -> None:
+    def __init__(self, polytope: Polytope, dims : list[int]|int, name:str | None = None) -> None:
 
         self.parent               : "OperatorNode" |None    = None
         self.polytope             : Polytope                = polytope
+
+        if isinstance(dims, int):
+            dims = [dims]
+        self.dims                : list[int]               = dims
+
+
         Node.__init__(self)  
         
         if name is None:
@@ -88,20 +94,6 @@ class AndOperator(OperatorNode) :
                 return False
         return True
     
-    @staticmethod
-    def make_single_predicate_node(nodes: list[PredicateNode|Node]) -> PredicateNode:
-        """
-        Check if all children are predicates
-        """
-        if AndOperator.are_all_predicates(nodes):
-            polytope = nodes[0].polytope
-            for node in nodes[1:]:
-                polytope = polytope & node.polytope
-            
-            return PredicateNode(polytope)
-        else :
-            raise ValueError("Node must be all prediacted to gather them in conjuntion")
-
 class OrOperator(OperatorNode) :
     """ Or operator node """
     def __init__(self, *children : Node ) -> None:
@@ -259,7 +251,7 @@ def deepcopy_predicate_node(node: Node) -> Node:
     """ Go down the tree and duplicate the poredicates which coudl be shared among different branches"""
 
     if isinstance(node, PredicateNode):
-        return PredicateNode(node.polytope, name= node.name)
+        return PredicateNode(node.polytope, dims=node.dims, name= node.name)
     
     else:
         if isinstance(node,UOp):
@@ -330,12 +322,7 @@ class Formula:
         else:
             root_self    = deepcopy_predicate_node(self.root)
             root_formula = deepcopy_predicate_node(formula.root)
-
-            if isinstance(root_self, PredicateNode) and isinstance(root_formula, PredicateNode): # if you are doing conjunction of predicates them merge them into a single predicate
-                conjuntion_predicate_node : PredicateNode = AndOperator.make_single_predicate_node([root_self, root_formula])
-                new_formula =  Formula(root = conjuntion_predicate_node)
-            else :
-                new_formula  = Formula( root = AndOperator(root_self ,root_formula))
+            new_formula  = Formula( root = AndOperator(root_self ,root_formula))
             
             return new_formula
         
@@ -684,9 +671,8 @@ class Formula:
 
         
 class Predicate(Formula) :
-    def __init__(self, polytope: Polytope, name: str | None = None) -> None:
-        self.name = name
-        super().__init__(root = PredicateNode(polytope,name))
+    def __init__(self, polytope: Polytope, dims:list[int]|int , name: str | None = None) -> None:
+        super().__init__(root = PredicateNode(polytope = polytope , dims = dims , name = name))
 
     def plot(self,*args, **kwargs):
         """
@@ -696,7 +682,7 @@ class Predicate(Formula) :
         ax = root.polytope.plot(*args, **kwargs)
         return ax
 
-def get_type_and_polytopic_predicate(formula : Formula ) -> tuple[str,Polytope] :
+def get_type_polytope_and_output_dims(formula : Formula ) -> tuple[str,Polytope,list[int]] :
 
     if not isinstance(formula,Formula): 
         raise ValueError("The formula must be of type Formula")
@@ -704,23 +690,23 @@ def get_type_and_polytopic_predicate(formula : Formula ) -> tuple[str,Polytope] 
     root_node : Node = formula.root
     if isinstance(root_node,GOp):
         if isinstance(root_node.children[0],PredicateNode):
-            return "G", root_node.children[0].polytope
+            return "G", root_node.children[0].polytope, root_node.children[0].dims
     
     if isinstance(root_node,FOp):
         if isinstance(root_node.children[0],PredicateNode):
-            return "F", root_node.children[0].polytope
+            return "F", root_node.children[0].polytope, root_node.children[0].dims
     
     if isinstance(root_node,GOp):
         if isinstance(root_node.children[0],FOp):
             if isinstance(root_node.children[0].children[0],PredicateNode):
-                return "GF", root_node.children[0].children[0].polytope
+                return "GF", root_node.children[0].children[0].polytope,root_node.children[0].children[0].dims
     
     if isinstance(root_node,FOp):
         if isinstance(root_node.children[0],GOp):
             if isinstance(root_node.children[0].children[0],PredicateNode):
-                return "FG", root_node.children[0].children[0].polytope
+                return "FG", root_node.children[0].children[0].polytope,root_node.children[0].children[0].dims
 
-    raise ValueError("The given formula is not part of the STL syntax currently supported. Please verify the fragment you are using.")
+    raise ValueError("The given formula is not part of the STL syntax currently supported. Until operator is coming. Please verify the fragment you are using.")
 
     
 

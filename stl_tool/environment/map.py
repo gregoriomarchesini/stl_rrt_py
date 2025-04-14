@@ -3,10 +3,9 @@ import numpy as np
 import  matplotlib.pyplot as plt
 
 
-from   stl_tool.polytope import Box2d, Box3d, Polytope
-from   stl_tool.stl.logic import PredicateNode, Node
-from   stl_tool.stl.logic import Formula 
-
+from   ..polytope import Box2d, Box3d, Polytope,selection_matrix_from_dims
+from   ..stl.logic import PredicateNode, Node
+from   ..stl.logic import Formula 
 
 
 class Map:
@@ -21,7 +20,7 @@ class Map:
                 each tuple represents the min and max along each dimension
         """
 
-        self.workspace   :Polytope        = workspace
+        self.workspace   : Polytope       = workspace
         self.obstacles   : list[Polytope] = []
         self.ax          : plt.Axes       = None
         self.fig         : plt.Figure     = None
@@ -36,73 +35,80 @@ class Map:
         """
         if isinstance(obstacle, Polytope):
             if obstacle.num_dimensions != self.workspace.num_dimensions:
-                raise ValueError("obstacle and workspace must have the same number of dimensions")
+                print("obstacle and workspace must have the same number of dimensions. Obstacles dimensional inflating")
+                # inflate the obstacle to the workspace dimension
+                obstacle : Polytope = obstacle.get_inflated_polytope_to_dimension(self.workspace.num_dimensions)
+            
             self.obstacles.append(obstacle)
             
         elif isinstance(obstacle, list):
             for obs in obstacle:
                 if isinstance(obs, Polytope):
                     if obs.num_dimensions != self.workspace.num_dimensions:
-                        raise ValueError("obstacle and workspace must have the same number of dimensions")
+                        print("obstacle and workspace must have the same number of dimensions. Obstacles dimensional inflating")
+                        # inflate the obstacle to the workspace dimension
+                        obs : Polytope = obs.get_inflated_polytope_to_dimension(self.workspace.num_dimensions)
                     self.obstacles.append(obs)
                 else:
-                    raise ValueError("obstacle must be a Polytope or list of Box2d")
+                    raise ValueError("obstacle must be a Polytope.")
         else:
             raise ValueError("obstacle must be a Box2d or list of Box2d. Given : {}".format(type(obstacle)))
     
 
-    def draw(self, list_of_dimensions: list[int] = []) :
-        
+    def draw(self, projection_dim: list[int] = []) :
 
+        if len(projection_dim) == 0:  
+            # just project the first available dimensions 
+            projection_dim = [i for i in range(min(3,self.workspace.num_dimensions))]
         
-        if not len(list_of_dimensions) and self.workspace.num_dimensions >3:
-            raise ValueError("list_of_dimensions must be provided for 4D or higher dimensions. PLotting can only be done for 3 or 2 dimension")
-        elif self.workspace.num_dimensions == 1:
-            raise ValueError("1D map cannot be plotted yet")
-        else : #otherwise plor normally
-            if len(list_of_dimensions) :
-                projected_workspace = self.workspace.projection(list_of_dimensions)
-                projected_obstacles = [obstacle.projection(list_of_dimensions) for obstacle in self.obstacles]
-            else : # nothing to project if the workspace is already in a plottable dimension
-                projected_workspace = self.workspace
-                projected_obstacles = self.obstacles
-
-        if projected_workspace.num_dimensions == 2:
+        elif not len(projection_dim) in [2,3] : 
+            raise ValueError("projection_dim must have length 2 or 3. Given list is {}".format(projection_dim))
+    
+        # make appropriate projections
+        if  len(projection_dim) == 2:
             fig, ax = plt.subplots(figsize=(10, 10))
             # draw black contour of the workspace using vertices
-            vertices = projected_workspace.vertices
+            vertices = self.workspace.projection(projection_dim).vertices
             # add first vertex in the end to close the loop
             vertices = np.concatenate((vertices, vertices[0:1]), axis=0)
             ax.plot(vertices[:, 0], vertices[:, 1], 'k', linewidth=3)
-            # draw obstacles
-            for obstacle in projected_obstacles:
-                obstacle.plot(ax, color='k', alpha=0.3)
 
-    
-        elif projected_workspace.num_dimensions == 3:
+        elif len(projection_dim) == 3:
             fig = plt.figure(figsize=(10, 10))
             ax = fig.add_subplot(111, projection='3d')
             # draw black contour of the workspace using vertices
-            vertices = projected_workspace.vertices
-            ax.plot(vertices[:, 0], vertices[:, 1], vertices[:, 2], 'k', linewidth=0.0001) # just don't make them visible
-            # draw obstacles
-            for obstacle in projected_obstacles:
-                obstacle.plot(ax, color='k', alpha=0.3)
+            vertices = self.workspace.projection(projection_dim).vertices
+            # add first vertex in the end to close the loop
+            vertices = np.concatenate((vertices, vertices[0:1]), axis=0)
+            ax.plot(vertices[:, 0], vertices[:, 1],vertices[:, 2], 'k', linewidth=0.01) # it will just be invisible but set the correct size for the map
+        
+        # draw obstacles
+        for obstacle in self.obstacles:
+            obstacle.plot(ax, color='k', alpha=0.3, projection_dims = projection_dim)
         
         self.fig = fig
         self.ax  = ax
 
         return fig,ax
     
-    def draw_formula_predicate(self,formula : Formula):
+    def draw_formula_predicate(self,formula : Formula, projection_dim: list[int] = []):
+
+        if len(projection_dim) == 0:  
+            # just project the first available dimensions 
+            projection_dim = [i for i in range(min(3,self.workspace.num_dimensions))]
         
         if self.ax is None:
-            self.fig, self.ax = self.draw()
+            self.fig, self.ax = self.draw(projection_dim)
 
         # look recursuvely into the tree 
         def draw_recursively(node: Node):
             if isinstance(node, PredicateNode):
-                node.polytope.plot(self.ax, alpha=0.3,color='b')
+                if node.polytope.num_dimensions != self.workspace.num_dimensions :
+                    C = selection_matrix_from_dims(n_dims = self.workspace.num_dimensions, selected_dims = node.dims)
+                    polytope = Polytope(node.polytope.A@C, b = node.polytope.b) # bring polytope to suitable dimension
+                else :
+                    polytope = node.polytope
+                polytope.plot(self.ax, alpha=0.3,color='b',projection_dims= projection_dim)
             else:
                 for child in node.children:
                     draw_recursively(child)

@@ -1,6 +1,6 @@
 from stl_tool.stl import Formula, GOp, FOp
 from stl_tool.stl.parameter_optimizer import TasksOptimizer
-from stl_tool.stl.predicate_models import BoxPredicate
+from stl_tool.stl.predicate_models import BoxBound
 from stl_tool.polytope import Box2d,Box3d
 
 
@@ -8,7 +8,7 @@ from matplotlib import pyplot as plt
 from openmpc import LinearSystem
 import numpy as np
 
-box_predicate = BoxPredicate(n_dim=3, size = 4, center = np.array([0., 0.,0.]))
+box_predicate = BoxBound(n_dim=3, size = 4, center = np.array([0., 0.,0.]))
 workspace     = Box3d(x = 0,y = 0, z = 0,size = 10) 
 input_bounds  = Box3d(x = 0,y = 0, z = 0,size = 10) 
 
