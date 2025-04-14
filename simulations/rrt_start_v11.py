@@ -5,7 +5,7 @@ from stl_tool.stl                     import GOp, FOp, TasksOptimizer, BoxBound,
 from stl_tool.environment.map         import Map
 from stl_tool.polytope                import Box2d
 
-from stl_tool.planners import RRT
+from stl_tool.planners import RRTStar
 
 
 ##########################################################
@@ -36,10 +36,10 @@ input_bounds  = Box2d(x = 0.,y = 0.,size = max_input*2)
 # STL specifications
 ##########################################################
 center         = np.array([-0., 0.])
-box_predicate  = BoxBound(n_dim = 2, size = 2.8, center = center)
-box2_predicate = BoxBound(n_dim = 2, size = 2.8, center = center + np.array([-3,-3.]))
-box3_predicate = BoxBound(n_dim = 2, size = 2.8, center = center + np.array([3.,3.]))
-formula        = (GOp(10.,14.) >> box_predicate)  & (FOp(17.,20.) >> box2_predicate) & (FOp(29.,30.) >> box3_predicate)
+box_predicate  = BoxBound(dims = [0,1], size = 2.8, center = center)
+box2_predicate = BoxBound(dims = [0,1], size = 2.8, center = center + np.array([-3,0.]))
+box3_predicate = BoxBound(dims = [0,1], size = 2.8, center = center + np.array([3,0.]))
+formula        = (GOp(10.,14.) >> box_predicate)  & (FOp(17.,20.) >> box2_predicate) & (FOp(29.,30.) >> box3_predicate) 
 map.draw_formula_predicate(formula = formula)
 formula.show_graph()
 
@@ -49,11 +49,10 @@ formula.show_graph()
 x_0       = center + np.array([2,-2.])
 # map.show_point(x_0, color = 'r', label = 'start') # show start point
 
-scheduler = TasksOptimizer(formula, workspace) # create task optimizer
+scheduler = TasksOptimizer(formula, workspace,system) # create task optimizer
 scheduler.make_time_schedule()                 # create scheduling of the tasks
 # scheduler.plot_time_schedule()               # visualize distribution of tasks time durations :)
 solver_stats = scheduler.optimize_barriers( input_bounds = input_bounds,     # optimize barrier functions
-                                            system       = system,
                                             x_0          = x_0)
 
 # # save to file if you want :)
@@ -77,14 +76,14 @@ ax.scatter(x_0[0], x_0[1], 0, color='r', label='start')
 
 
 
-rrt_planner = RRT(start_state      = x_0,
-                  system           = system,
-                  prediction_steps = 10,
-                  stl_constraints  = time_varying_constraints ,
-                  map              = map,
-                  max_input        = 1000,
-                  max_task_time    = formula.max_horizon(),
-                  max_iter         = 1000,)
+rrt_planner = RRTStar(start_state      = x_0,
+                      system           = system,
+                      prediction_steps = 10,
+                      stl_constraints  = time_varying_constraints ,
+                      map              = map,
+                      max_input        = 1000,
+                      max_task_time    = formula.max_horizon(),
+                      max_iter         = 1000,)
 
 
 rrt_planner.plan()

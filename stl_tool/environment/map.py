@@ -130,12 +130,18 @@ class Map:
         """
         if self.ax is None:
             self.fig, self.ax = self.draw()
+
+        point = point.flatten()
+        point = point[:max(3,len(point))]
+        if hasattr(self.ax, "get_proj") and len(point)<3:
+            point = np.stack((point,0),axis=0) # add a third dimension if not 3d
+        elif not hasattr(self.ax, "get_proj") :
+            point = point[:2]
         
-        if self.workspace.num_dimensions == 2:
+        
+        if not hasattr(self.ax, "get_proj"): # 2d plot
             self.ax.scatter(point[0], point[1], color=color, label=label)
-        elif self.workspace.num_dimensions == 3:
-            self.ax.scatter(point[0], point[1], point[2], color=color, label=label)
-        else: # plot first three dimensions in case
+        else: # 3d plot
             self.ax.scatter(point[0], point[1], point[2], color=color, label=label)
         
         return self.fig,self.ax

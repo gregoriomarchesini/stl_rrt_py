@@ -14,7 +14,7 @@ from openmpc.models  import LinearSystem
 
 
 from stl_tool.environment.map  import Map
-from stl_tool.polytope         import Polytope
+from stl_tool.polytope         import Polytope,selection_matrix_from_dims
 from stl_tool.stl.parameter_optimizer import TimeVaryingConstraint
 from stl_tool.stl.linear_system import ContinuousLinearSystem
 
@@ -45,6 +45,10 @@ class RRT:
         self.system            = LinearSystem.c2d(system.A, system.B, dt = system.dt) # convert to discrete time system of openmpc
         self.start_time        = 0.                                                   # initial time
         self.start_cost        = 0.                                                   # start cost of the initial node
+
+        if len(start_state) != system.size_state:
+            raise ValueError(f"Start state dimension {len(start_state)} does not match system state dimension {system.size_state}.")
+
         self.start_node        = np.array([*start_state, self.start_time])            # Start node (node = (state,time))
         self.map               = map                                                  # map containing the obstacles
         self.max_iter          = max_iter                                             # maximum number of iterations
@@ -58,7 +62,7 @@ class RRT:
         self.tree              = [self.start_node]
         self.current_best_cost = BIG_NUMBER
         self.cost              = [0.]
-        self.trajectories      = [self.start_node[:,np.newaxis]]
+        self.trajectories      = [start_state.flatten()[:,np.newaxis]]
         self.time_trajectories = [self.start_time]
         self.parents           = [-1]
         
@@ -69,8 +73,11 @@ class RRT:
         self.bias_future_time  = bias_future_time
         
         
-        self.TIME = 2
-        self.STATE = [0,1]
+        # For a given node : state[self.STATE] is the state and state[self.TIME] is the time
+        self.TIME  = self.system.size_state
+        self.STATE = [i for i in range(self.system.size_state)]
+        
+
 
         self.obtained_paths    = []  
         self.new_nodes         = []  
@@ -177,7 +184,7 @@ class RRT:
     def step(self):
 
         rand_point         = self.random_node()
-        past_tree          = [ node if node[2] < rand_point[2] else node*1e6 for node in self.tree ]
+        past_tree          = [ node if node[self.TIME] < rand_point[self.TIME] else node*1e6 for node in self.tree ]
         self.kd_tree_past  = KDTree(past_tree) # KD-tree for nearest neighbour search. Each node is a 3D point (x, y, t)
 
         nearest_node,nearest_index  = self.single_past_nearest(rand_point)
@@ -232,33 +239,55 @@ class RRT:
 
 
          
-    def plot_rrt_solution(self, solution_only:bool = False):
+    def plot_rrt_solution(self, solution_only:bool = False, projection_dim:list[int] = []):
 
         # Remainder of the class remains the same (plot and animate methods)
 
-        fig,ax = self.map.draw()
+
+        if len(projection_dim) == 0:
+            projection_dim = [i for i in range(min(self.system.size_state, 3))] # default projection on the first tree/two dimensions
+
+        fig,ax = self.map.draw(projection_dim = projection_dim) # creats already axes of good dimension and throws errors if the number of projected dimensions is wrong
+        
+        C = selection_matrix_from_dims(self.system.size_state, projection_dim)
         
         if not solution_only:
             # plot the whole tree
             for i, node in enumerate(self.tree):
                 if self.parents[i] != -1:
-                    trajectory = self.trajectories[i]
-                    x = trajectory[0,:]
-                    y = trajectory[1,:]
-
-                    ax.plot(x, y, "g-o", lw=1)
+                    trajectory = C@self.trajectories[i]
+                    
+                    if len(projection_dim) == 2:
+                        x = trajectory[0,:]
+                        y = trajectory[1,:]
+                        ax.plot(x, y, "b-o", lw=1)
+                    
+                    elif len(projection_dim) == 3:
+                        x = trajectory[0,:]
+                        y = trajectory[1,:]
+                        z = trajectory[2,:]
+                        ax.plot(x, y, z, "b-o", lw=1)
 
         for solution in self.solutions:
             random_color = np.random.rand(3,)
-            for j,trj in enumerate(solution["path_trj"]):
-                x    = trj[0,:]
-                y    = trj[1,:]
-                # time = trj[2,:]
+            for jj,trj in enumerate(solution["path_trj"]):
+                trj = C@trj
+                if len(projection_dim) == 2:
+                    x = trj[0,:]
+                    y = trj[1,:]
+                elif len(projection_dim) == 3:
+                    x = trj[0,:]
+                    y = trj[1,:]
+                    z = trj[2,:]
                 
-                if j == len(solution["path_trj"])-1:
+
+                # plot 
+                if len(projection_dim) == 2:
                     ax.plot(x, y, lw=4, c = random_color, label="Cost: %.2f"%solution["cost"])
-                else :
-                    ax.plot(x, y, lw=4, c = random_color)
+                elif len(projection_dim) == 3:
+                    ax.plot(x, y, z, lw=4, c = random_color, label="Cost: %.2f"%solution["cost"])
+                
+                
                 # annotate the time at final point 
                 # ax.annotate(f"t: {time[-1]:.2f}", (x[-1] +0.3 , y[-1]), textcoords="offset points", xytext=(0,10), ha='center')
            
@@ -266,18 +295,20 @@ class RRT:
         if len(self.solutions) :
             best = min(self.solutions, key=lambda x: x["cost"])
             for jj,trj in enumerate(best["path_trj"]):
-                x    = trj[0,:]
-                y    = trj[1,:]
-                # time = trj[2,:]
-                if jj == len(best["path_trj"])-1:
-                    ax.plot(x, y, lw=4, c = "red", label="Best Cost: %.2f"%best["cost"])
-                else :
-                    ax.plot(x, y, lw=4, c = "red")
-                # annotate the time at final point 
-                # ax.annotate(f"t: {time[-1]:.2f}", (x[-1] +0.3 , y[-1]), textcoords="offset points", xytext=(0,10), ha='center', color="red")
+                trj = C@trj
+                if len(projection_dim) == 2:
+                    x = trj[0,:]
+                    y = trj[1,:]
+                elif len(projection_dim) == 3:
+                    x = trj[0,:]
+                    y = trj[1,:]
+                    z = trj[2,:]
 
-            ax.plot(self.start_node[0], self.start_node[1], "go", markersize=10, label="Start")
-            ax.legend()
+                # plot 
+                if len(projection_dim) == 2:
+                    ax.plot(x, y, lw=4, c = random_color, label="Cost: %.2f"%solution["cost"])
+                elif len(projection_dim) == 3:
+                    ax.plot(x, y, z, lw=4, c = random_color, label="Cost: %.2f"%solution["cost"])
         
         return fig, ax
     
@@ -343,7 +374,17 @@ class RRTStar(RRT):
         # Add input magnitude constraint (elevator angle limited to ±15°)
         mpc_params.add_input_magnitude_constraint(limit = self.max_input_bound, is_hard=True)
         mpc_params.add_general_state_constraints(Hx = self.map.workspace.A, bx = self.map.workspace.b,is_hard=True)
-        for constraint in self.stl_constraints :
+
+
+        # convertion into openmpc constraints
+        rrt_constraints    :list[TimedConstraint]        = []
+        for tvc in self.stl_constraints:
+            rrt_constraints.append(TimedConstraint(H     = tvc.H,
+                                                   b     = tvc.b, 
+                                                   start = tvc.start_time,
+                                                   end   = tvc.end_time))
+            
+        for constraint in rrt_constraints :
             mpc_params.add_general_state_time_constraints(Hx = constraint.H, bx = constraint.b, start_time = constraint.start, end_time = constraint.end, is_hard=True)
         
         

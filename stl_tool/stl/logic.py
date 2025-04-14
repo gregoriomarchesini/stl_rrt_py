@@ -41,9 +41,17 @@ class Node :
 
 class PredicateNode(Node):
     """
-    Predicate Node of the formula tree. It contains the predicate function that defines the barrier function of the node.
+    Predicate Node of the formula tree. It stores the polytope defining the predicate and the dimensions of the state space that define such polytope.
     """
     def __init__(self, polytope: Polytope, dims : list[int]|int, name:str | None = None) -> None:
+        """
+        :param polytope: Polytope defining the predicate
+        :type polytope: Polytope
+        :param dims: dimensions of the state space that define the predicate. These are equal to the dimensions of the polytope.
+        :type dims: list[int]
+        :param name: name of the predicate
+        :type name: str
+        """
 
         self.parent               : "OperatorNode" |None    = None
         self.polytope             : Polytope                = polytope
@@ -51,6 +59,10 @@ class PredicateNode(Node):
         if isinstance(dims, int):
             dims = [dims]
         self.dims                : list[int]               = dims
+
+        if len(dims) != polytope.A.shape[1]:
+            raise ValueError("The list of dimensions to which the polytope is applied must be equal to the number of dimensions of the polytope e.g. " +
+                            f"if the polytope is 4 dimensional then there must be 4 dimensions in the list. Given {len(dims)} dimensions and {polytope.A.shape[1]} dimensions in the polytope")
 
 
         Node.__init__(self)  
@@ -671,16 +683,21 @@ class Formula:
 
         
 class Predicate(Formula) :
+    """
+    Wrapper class to create a predicate formula from a polytope.
+    """
     def __init__(self, polytope: Polytope, dims:list[int]|int , name: str | None = None) -> None:
+        """
+        
+        :param polytope: Polytope defining the predicate
+        :type polytope: Polytope
+        :param dims: dimensions of the state space that define the predicate. These are equal to the dimensions of the polytope.
+        :type dims: list[int]
+        :param name: name of the predicate
+        :type name: str
+        """
         super().__init__(root = PredicateNode(polytope = polytope , dims = dims , name = name))
 
-    def plot(self,*args, **kwargs):
-        """
-        Plot the predicate in the state space
-        """
-        root : PredicateNode = self.root # explicit call
-        ax = root.polytope.plot(*args, **kwargs)
-        return ax
 
 def get_type_polytope_and_output_dims(formula : Formula ) -> tuple[str,Polytope,list[int]] :
 

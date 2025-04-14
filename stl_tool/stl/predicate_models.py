@@ -7,7 +7,7 @@ from ..polytope import Polytope
 
 class Geq(Predicate):
     """
-    Predicate defining a lower bound on the state as x[dims] >= b
+    Predicate defining a lower bound on the state as x[dims] >= b. The list dims represents the dimension over which the predicate is defined.
     """
     def __init__(self, dims : list[int] | int, bound:float, name:str | None = None) :
         """
@@ -33,7 +33,7 @@ class Geq(Predicate):
 
 class Leq(Predicate):
     """
-    Predicate defining an upper bound on the state as x[dims] <= b
+    Predicate defining an upper bound on the state as x[dims] <= b. The list dims represents the dimension over which the predicate is defined.
     """
     def __init__(self, dims : list[int] | int, bound:float, name:str | None = None) :
         """
@@ -60,7 +60,7 @@ class Leq(Predicate):
 
 class BoxBound(Predicate):
     """
-    Represents a box region in the given dimensions of the state space
+    Represents a box region in the given dimensions of the state space. The list dims represents the dimension over which the predicate is defined.
     """
 
     def __init__(self, dims: list[int], size: float|list[float], center: np.ndarray = None, name:str | None = None):
@@ -80,14 +80,14 @@ class BoxBound(Predicate):
         else:
             center = np.array(center).flatten()
             if center.shape[0] != len(dims):
-                raise ValueError(f"The center must be a {len(dims)}D vector")
+                raise ValueError(f"The center must be a {len(dims)}D vector when the given predicate dimensions are ({len(dims)})")
         
         if isinstance(size, float):
             size = np.array([size] * 2*len(dims))
         else:
             size = np.hstack((np.array(size).flatten(),np.array(size).flatten()))
             if size.shape[0] != len(dims):
-                raise ValueError(f"The size must be a {len(dims)}D vector")
+                raise ValueError(f"The size must be a {len(dims)}D vector when the given predicate dimensions are ({len(dims)})")
        
 
         b     = size / 2
@@ -132,21 +132,4 @@ class BoxBound3d(BoxBound):
 
 
 if __name__ == "__main__":
-
-    # import matplotlib.pyplot as plt
-
-    # # Example usage
-    # dim = 3
-    # index = 1
-    # bound = 5.0
-
-    # geq_pred = Geq(dim, index, bound)
-    # leq_pred = Leq(dim, index, bound)
-    
-    
-    # geq_pred.plot()
-
-    # # box_pred = BoxPredicate(n_dim=3, size=2.0, center=np.array([1.0, 1.0, 1.0]))
-    # # print("Box Predicate:", box_pred.polytope)
-
-    # plt.show()
+    pass

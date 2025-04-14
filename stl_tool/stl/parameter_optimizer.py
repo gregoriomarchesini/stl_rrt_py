@@ -3,7 +3,9 @@ import cvxpy as cp
 
 from   typing     import Optional, Union
 from   matplotlib import pyplot as plt
+from   tqdm       import tqdm
 import json
+from multiprocessing import Pool
 
 
 from .logic         import Formula, AndOperator, Node, get_type_polytope_and_output_dims, OrOperator ,UOp, FOp, GOp
@@ -13,16 +15,24 @@ from .linear_system import ContinuousLinearSystem
 from ..polytope  import Polytope
 
 
-
 class BarrierFunction :
     """
-    Note that polytope representaton in cddlib is given as Ax<= b
-    But in the paper we have Dx + c >= 0 and thus -Dx<= c.
 
-    So In all the equations we get D = -A and c= b
+    This is an internal class that represents a general time-varying constraint of the form :math:`Dx + c+ \gamma(t) >=0`.
     
+    
+    We represent such constraint as a barrier function with multiple output as :math:`b(x,t) = Dx +c + \gamma(t)`, where 
+    :math:`Dx + c >=0` represents a polytope. 
+
+    The function gamma is a piexe wise linear function of the form :math:`\gamma(t) = e \cdot t + g`.
     """
     def __init__(self, polytope: Polytope ) -> None:
+        """
+        Initialize the barrier function with a given polytope.
+
+        :param polytope: Polytope object representing the constraint.
+        :type polytope: Polytope
+        """
         
         self._polytope   = polytope
         self._task_type  = None
@@ -62,30 +72,40 @@ class BarrierFunction :
     
 
     @property
-    def D_high_order(self):
+    def D_high_order(self) -> np.ndarray:
         if self._D_high_order is None:
             return self.D
         else :
             return self._D_high_order
     @property
-    def c_high_order(self):
+    def c_high_order(self)-> np.ndarray:
         if self._c_high_order is None:
             return self.c
         else :
             return self._c_high_order
         
     @property
-    def polytope(self):
+    def polytope(self)-> Polytope:
         return self._polytope
     
     @property
-    def task_type(self):
+    def task_type(self) -> str:
         return self._task_type
 
     @property
-    def D(self):
+    def D(self)-> np.ndarray:
+        """
+        D matrix of the barrier function :math:`b(x,t) = Dx +c + \gamma(t)`
+        """
         D = - self.polytope.A 
         return D
+    @property
+    def c(self) :
+        """
+        c vector of the barrier function :math:`b(x,t) = Dx +c + \gamma(t)`
+        """
+        return self.polytope.b
+
     @property
     def e1_var(self):
         e_vec = - (self.gamma_0_var/self.alpha) 
@@ -102,9 +122,6 @@ class BarrierFunction :
     def g2_var(self) :
         g_vec = -self.r_var *np.ones(self.polytope.num_hyperplanes) 
         return g_vec
-    @property
-    def c(self) :
-        return self.polytope.b
     @property
     def e1_value(self):
         return - self.gamma_0/self.alpha 
@@ -131,20 +148,21 @@ class BarrierFunction :
         self._task_type = value
     
 
-    def gamma_var_value(self,t):
-
-        if t <0 :
-            raise ValueError("The time must be positive.")
-        if t > self.beta :
-            raise ValueError("The time must be less than the beta.")
-        
-        if t >= self.alpha  and t <= self.beta:
-            return - self.r_var 
-
-        if t <= self.alpha :
-            return (self.gamma_0_var- self.r_var) + self.gamma_0_var/self.alpha * t
-        
     def upsilon(self,t:float)-> int :
+        """
+        Return 1 or 2 depending on which linear section of the function the given time is in.
+
+        if t < alpha then return 1\n
+        if t > alpha and t < beta then return 2\n
+        if t > beta then raise ValueError\n
+
+        :param t: Time value.
+        :type t: float
+        :return: 1 or 2 depending on the section.
+        :rtype: int
+
+
+        """
         t = float(t)
 
         if (t >= 0.) and (t < self.alpha):
@@ -154,26 +172,51 @@ class BarrierFunction :
         else :
             raise ValueError("The given time time is outside the range [0,beta].")
         
-    def set_high_order_constraints(self, D: np.ndarray, c: np.ndarray) -> None:
+    def set_high_order_constraints(self, D_high: np.ndarray, c_high: np.ndarray) -> None:
         """
-        Set the high order derivative of the barrier function.
+        A barrier function is associated with an order depending on the dynamics it is applied to. Namely, a common constraints applied to defined the forward invariance of the \n
+        barrier function is given as :math:`\dot{b}(x,t) + k\cdot b(x,t) >= 0` where k is a postive gain. For a linear system we have that 
         
-        Args:
-            D: High order derivative matrix.
-            c: High order derivative vector.
-        """
-        self._D_high_order = D
-        self._c_high_order = c
+        .. math::
+            \dot{b}(x,t) = D  (Ax+Bu)  + \dot{\gamma(t)} + k(Dx + c + \gamma(t)).
 
+        In case there one entry of the matrix :math:`D\cdot B` that is a vector of all zeros, then this direction is uncontrollable. For this reason we define high-order barrier functions \n
+        by lifting the barrier function according to the following recursion 
+        
+        :math:`b^{p}(x,t) = D(A + kI)^{p} + \gamma(t) + k^{p}c
+
+        where the recursion continues until math:`D(I + kc)^{p}B` has not direction of full zeros. If the system is controllable then this will happen after at most a number of iterations equal to the state space dimension.
+
+
+        :param D_high: High-order D matrix.
+        :type D_high: np.ndarray
+        :param c_high: High-order c vector.
+        :type c_high: np.ndarray
+        """
+        self._D_high_order = D_high
+        self._c_high_order = c_high
+
+
+def solve_with_k(k_val, constraints, cost, k_gain):
+    # Rebuild the problem each time for true parallelism
+    problem = cp.Problem(cp.Minimize(cost), constraints)
+    k_gain.value = k_val
+    try:
+        problem.solve(warm_start=True)
+        if problem.status == cp.OPTIMAL:
+            return k_val
+    except:
+        pass
+    return None
 
 
 class TasksOptimizer:
     
     def __init__(self,formula : Formula, workspace: Polytope, system : ContinuousLinearSystem ) -> None:
         
-        self.formula           : Formula                = formula
-        self._workspace        : Polytope               = workspace
-        self.system            :ContinuousLinearSystem  = system
+        self.formula           : Formula                 = formula
+        self._workspace        : Polytope                = workspace
+        self.system            : ContinuousLinearSystem  = system
 
         self._varphi_formulas  : list[Formula]          = [] # subformulas G,F,FG,GF
         self._barriers         : list[BarrierFunction]  = []
@@ -217,20 +260,21 @@ class TasksOptimizer:
             try : 
                 C   = self.system.output_matrix_from_dimension(dims) 
             except Exception as e:
-                raise ValueError(f"Error in output matrix creation. The error stems from the fact that the required dimension of one or more predicates in the formulas" +
-                                  "is out of range for the system e.g. a predicate is enforcing a specification of the state with index 3 but the state dimension is only 2. "
-                                  "The raised exception is the following : {e}")
+                print(f"Error in output matrix creation. The error stems from the fact that the required dimension of one or more predicates in the formulas" +
+                      f"is out of range for the system e.g. a predicate is enforcing a specification of the state with index 3 but the state dimension is only 2. " +
+                      f"The raised exception is the following")
+                raise e
 
 
-             ## create barrier
-            A        = polytope.A@ C
+            ## Create barrier.
+            A        = polytope.A@C # Expansion of the polytope to the dimension of the system.
             b        = polytope.b
             polytope = Polytope(A,b)
 
             if type_formula == "G" :
 
 
-                barrier = BarrierFunction(polytope)
+                barrier : BarrierFunction  = BarrierFunction(polytope)
                 barrier.task_type = type_formula
                 barriers.append(barrier)
                 time_constraints += [barrier.alpha_var == time_interval.a, barrier.beta_var == time_interval.b]
@@ -246,7 +290,7 @@ class TasksOptimizer:
             elif type_formula == "F" :
                
 
-                barrier = BarrierFunction(polytope)
+                barrier : BarrierFunction = BarrierFunction(polytope)
                 barrier.task_type = type_formula
                 barriers.append(barrier)
                 time_constraints += [barrier.alpha_var >= time_interval.a, 
@@ -264,8 +308,9 @@ class TasksOptimizer:
             elif type_formula == "FG":
 
 
-                time_interval_prime : TimeInterval = root.children[0].interval
-                barrier = BarrierFunction(polytope)
+                time_interval_prime : TimeInterval    = root.children[0].interval
+                barrier             : BarrierFunction = BarrierFunction(polytope)
+                
                 barrier.task_type = type_formula
                 barriers.append(barrier)
                 time_constraints += [barrier.alpha_var >= time_interval.a +  time_interval_prime.a, 
@@ -345,15 +390,29 @@ class TasksOptimizer:
         self._barriers         = barriers
         self._time_constraints = time_constraints
 
-    def _make_high_order_corrections(self, system : ContinuousLinearSystem, k_gain : float | cp.Parameter) -> None:
+    def _make_high_order_corrections(self, system : ContinuousLinearSystem, k_gain : cp.Parameter) -> int:
 
         """
-        High order barrier funcitons are required if a given predicate is not directly controllable.
-
-        Take for example a linear system with dynamics x_dot = Ax = Bu and take a predicate of the form  a x + c >= 0.
-        Then it can be that c^TB = 0 such that the barrier constraint cT (Ax + Bu) \geq k_gain*(a x + c ) can only be satisfied if the system satisfies it, but there is no 
-        controllability on the system. We should then consider the higher order derivatives of the predicate.
+        A barrier function is associated with an order depending on the dynamics it is applied to. Namely, a common constraints applied to defined the forward invariance of the \n
+        barrier function is given as :math:`\dot{b}(x,t) + k\cdot b(x,t) >= 0` where k is a postive gain. For a linear system we have that 
         
+        .. math::
+            \dot{b}(x,t) = D  (Ax+Bu)  + \dot{\gamma(t)} + k(Dx + c + \gamma(t)).
+
+        In case there one entry of the matrix :math:`D\cdot B` that is a vector of all zeros, then this direction is uncontrollable. For this reason we define high-order barrier functions \n
+        by lifting the barrier function according to the following recursion 
+        
+        :math:`b^{p}(x,t) = D(A + kI)^{p} + \gamma(t) + k^{p}c
+
+        where the recursion continues until math:`D(I + kc)^{p}B` has not direction of full zeros. If the system is controllable then this will happen after at most a number of iterations equal to the state space dimension.
+        
+        :param system: The system to be used for the optimization.
+        :type system: ContinuousLinearSystem
+        :param k_gain: The gain parameter for the optimization.
+        :type k_gain: cp.Parameter
+        :return: The order of the barrier function.
+        :rtype: int
+        :raises ValueError: If the system is not controllable.
         """
 
         if not system.is_controllable():
@@ -371,7 +430,7 @@ class TasksOptimizer:
             D = barrier.D
             c = barrier.c
             right_order  = False
-            order = 1
+            order = 0
 
             while not right_order : #(for controllable systems this will stop after at most a number of iterations equal to the state space)
                 db = D@B
@@ -386,11 +445,18 @@ class TasksOptimizer:
                 else :
                     order += 1
                     D = D@(A + I)
-                    
-            print(f"Found barrier function of order: {order}")
-            barrier._D_high_order = barrier.D@cp.power(A + I*k_gain,order) 
-            barrier._c_high_order = k_gain**order * c
-        
+            
+
+            if order == 0:
+                print(f"Found barrier function of order: {order}")
+                barrier._D_high_order = D
+                barrier._c_high_order = c
+            else:
+                print(f"Found barrier function of order: {order}")
+                barrier._D_high_order = barrier.D@cp.power(A + I*k_gain,order) 
+                barrier._c_high_order = cp.power(k_gain,order) * c
+            
+        return order
 
     def make_time_schedule(self) :
 
@@ -476,13 +542,17 @@ class TasksOptimizer:
 
     
     
-    def optimize_barriers(self, input_bounds: Polytope ,system : ContinuousLinearSystem, x_0 : np.ndarray, gain: float = 1.0) :
+    def optimize_barriers(self, input_bounds: Polytope , x_0 : np.ndarray) :
         
         
         if input_bounds.is_open:
             raise ValueError("The input bounds are an open Polyhedron. Please provide a closed polytope")
         
-        if not isinstance(system, ContinuousLinearSystem):
+        if input_bounds.num_dimensions != self.system.size_input:
+            raise ValueError("The input bounds polytope must be in the same dimension as the system input. Given input bounds are in dimension " +
+                             str(input_bounds.num_dimensions) + ", while the system input dimension is " + str(self.system.size_input))
+        
+        if not isinstance(self.system, ContinuousLinearSystem):
             raise ValueError("The system must be a ContinuousLinearSystem.")
         
         x_0 = x_0.flatten()
@@ -494,14 +564,13 @@ class TasksOptimizer:
         x_dim                 = self._workspace.num_dimensions
         set_of_time_intervals = list({ barrier.alpha for barrier in self._barriers} | { barrier.beta for barrier in self._barriers} | {0.}) # repeated time instants will be counted once in this way
         ordered_sequence      = sorted(set_of_time_intervals)
-        k_gain                = cp.Parameter(nonneg=True) #! (when program fails try to increase control input and increase the k_gain. Carefully analyze the situation. Usually it should be at leat equal to 1.)
-        k_gain.value          = gain
+        k_gain                = cp.Parameter(pos=True) #! (when program fails try to increase control input and increase the k_gain. Carefully analyze the situation. Usually it should be at leat equal to 1.)
         
-        self._make_high_order_corrections(system = system, k_gain = k_gain)
+        order = self._make_high_order_corrections(system = self.system, k_gain = k_gain)
         
 
-        A = system.A
-        B = system.B
+        A = self.system.A
+        B = self.system.B
 
         constraints  :list[cp.Constraint]  = []
 
@@ -516,7 +585,7 @@ class TasksOptimizer:
             s_j_vec        = np.array([s_j for i in range(vertices.shape[1])]) # column vector
             s_j_plus_1_vec = np.array([s_j_plus_1 for i in range(vertices.shape[1])])
             V_j            = np.hstack((np.vstack((vertices,s_j_vec)) , np.vstack((vertices,s_j_plus_1_vec)))) # space time vertices
-            U_j            = cp.Variable((system.size_input, V_j.shape[1]))                                         # spece of control input vertices
+            U_j            = cp.Variable((self.system.size_input, V_j.shape[1]))                                         # spece of control input vertices
             
             # Input constraints.
             for kk in range(U_j.shape[1]):
@@ -595,30 +664,34 @@ class TasksOptimizer:
         # initial state constraint
         constraints += [zeta_0 == x_0]
 
-
-
-
         # create problem and solve it
         cost = 0
         for barrier in self._barriers:
             cost += -barrier.r_var
-            
-        fig,ax = plt.subplots(figsize=(10, 4))    
+             
         problem = cp.Problem(cp.Minimize(cost), constraints)
         good_k_found = False
-        for k_val in np.arange(0.01,100,0.1):
+
+
+        print("Selcting a good gain k ...")
+        # when barriers have order highr than 1, the problem is no more dpp and thus it takes a lot of time to solve it.
+        if order >= 1:
+            k_vals = np.arange(0.1, 10, 0.1)
+        else :
+            k_vals = np.arange(0.1, 100, 0.1)
+        
+
+        # Parallelize using multiprocessing
+        for k_val in tqdm(k_vals):
             k_gain.value = k_val
-            problem.solve(warm_start=True)
-            if problem.status == cp.OPTIMAL :
+    
+            problem.solve(warm_start=True, verbose=False)
+            if problem.status == cp.OPTIMAL:
                 good_k_found = True
                 break
-        
-        if not good_k_found:
-            raise ValueError("A suitable k (the alpha functions for the barriers) was not found. Try to increase the input and retry.")
-        
-            
 
-        plt.show()
+        if not good_k_found:
+            print("No good k found. Please increase the range of k.")
 
 
 
@@ -673,7 +746,10 @@ class TasksOptimizer:
 
     def show_time_varying_level_set(self) :
         
-        fig, ax = plt.subplots()
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection='3d')  # Transforms into 3D
+
+        self._workspace.plot(ax, alpha=0.01)
         for t in np.linspace(0., self.formula.max_horizon(), 30):
             
             polytopes = []
@@ -686,15 +762,15 @@ class TasksOptimizer:
                     polytope = Polytope(H, b - e*t)
                     polytopes.append(polytope)
 
-
+             
             # create intersections
             if len(polytopes) > 0:
-                intersection = polytopes[0]
+                intersection : Polytope = polytopes[0]
                 for i in range(1, len(polytopes)):
                     intersection = intersection.intersect(polytopes[i])
                 
                 intersection.plot(ax,alpha=0.1)
-                ax.set_title(f"Time-varying level set at t={t:.2f}")
+                # ax.set_title(f"Time-varying level set at t={t:.2f}")
         
         plt.show()
 

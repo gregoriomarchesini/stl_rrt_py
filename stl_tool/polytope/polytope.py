@@ -4,17 +4,24 @@ import matplotlib.pyplot as plt
 from scipy.spatial import ConvexHull
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 
-"""This file was originally developed by Mikael Johansson and is part of the openMPC library"""
+### This file was originally developed by Mikael Johansson and is part of the openMPC library
+### It has been modified by the stl_tool team to fit the needs of the library
 
 class Polytope:
-    def __init__(self, A, b):
-        # Normalize the polytope inequalities to the form a^Tx <= 1
-
-        # A, b = self.normalize(A, b) #! normalization is risky when working with shifted polytopes
+    """ 
+    General Polytope class. Every polytope is represented as Conv(V) + Cone(R) where V are the vertices and R are the rays.
+    The polytope is defined by the H-representation Ax-b <= 0. The vertices and rays are computed using cddlib.
+    """
+    def __init__(self, A : np.ndarray , b:np.ndarray) -> None:
+        """
+        :param A: Matrix A of the polyhedron Ax-b <= 0
+        :type A: np.ndarray
+        :param b: Vector b of the polyhedron Ax-b <= 0
+        :type b: np.ndarray
+        """
         
-        # Ensure that b is a 1D array
+       
         b = b.flatten()
-
         self.A = A 
         self.b = b 
 
@@ -24,7 +31,7 @@ class Polytope:
         self.poly    = cdd.polyhedron_from_matrix(self.cdd_mat)
         
         
-        self._is_open  :bool         = None
+        self._is_open  :bool         = None  # defines if the given polytope is open (thus a polyhedra)
         self._vertices :np.ndarray   = None  # vertices are enumarated along the rows
         self._rays     :np.ndarray   = None  # rays are enumarated along the rows
 
@@ -46,34 +53,44 @@ class Polytope:
     
     @property
     def is_open(self) -> bool:
-        if self._is_open is None: # after finding the v representaiton you can know if it open
+        """
+        Check if the polytope is open (i.e., it has rays).
+        """
+        if self._is_open is None: # after finding the v representaiton you can know if it is open
             self._get_V_representation()
         
         return self._is_open
 
     @property
     def vertices(self)-> np.ndarray:
+        """
+        Get the vertices of the polytope defining the CONV(V) part of the polytope.
+        """
         if self._vertices is None:
             self._get_V_representation()
         return self._vertices
     
     @property
     def rays(self) -> np.ndarray:
+        """
+        Get the rays of the polytope defining the CONE(R) part of the polytope.
+        """
         if self._rays is None:
             self._get_V_representation()
         return self._rays
 
-    def normalize(self, A, b):
+    def normalize(self, A : np.ndarray, b:np.ndarray):
         """
         Normalize the inequalities to the form a^T x <= 1.
 
-        Args:
-            A (numpy.ndarray): Inequality matrix of shape (m, n).
-            b (numpy.ndarray): Right-hand side vector of shape (m,) or (m, 1).
-
-        Returns:
-            (numpy.ndarray, numpy.ndarray): Normalized A and b.
+       :param A: Coefficient matrix.
+       :type A: numpy.ndarray
+       :param b: Right-hand side vector.
+       :type b: numpy.ndarray
+       :return: Normalized A and b.
+       :rtype: tuple(numpy.ndarray, numpy.ndarray)
         """
+
         # Ensure b is a 1D array
         b = b.flatten()
         
@@ -124,7 +141,7 @@ class Polytope:
 
     def _get_V_representation(self):
         """
-        Get the vertices (V-representation) of the polytope.
+        Computes vertices and rays of the polytope. If rays are present then the polytope is declared as open (a polyhedron)
         """
         generators_lib = cdd.copy_generators(self.poly)
         generators     = np.array(generators_lib.array)
@@ -176,19 +193,27 @@ class Polytope:
             return 0.0
     
     
-    def plot(self, ax=None, color='b', edgecolor='k', alpha=1.0, linestyle='-', showVertices=False, projection_dims : list[int] = None):
+    def plot(self, ax=None, color='b', edgecolor='k', alpha=1.0, linestyle='-', showVertices=False, projection_dims : list[int] = []):
         """
         Plot the polytope using Matplotlib. Only 2d or 3d plots are allowed. 
 
-        Args:
-            ax: Matplotlib axis object.
-            color: Fill color of the polytope.
-            edgecolor: Color of the polytope edges (if different from color).
-            alpha: Transparency of the fill.
-            linestyle: Line style for the edges.
-            showVertices: Boolean, whether to show the vertices as points.
+        :param ax: Matplotlib axis to plot on. If None, a new figure is created.
+        :type ax: matplotlib.axes.Axes
+        :param color: Fill color for the polytope.
+        :type color: str
+        :param edgecolor: Edge color for the polytope.
+        :type edgecolor: str
+        :param alpha: Transparency level for the fill color.
+        :type alpha: float
+        :param linestyle: Line style for the edges.
+        :type linestyle: str
+        :param showVertices: If True, show the vertices of the polytope.
+        :type showVertices: bool
+        :param projection_dims: List of dimensions to project onto. If empty, the first 2 or 3 dimensions are used.
+        :type projection_dims: list[int]
         """
-        # Get vertices for plotting
+
+        # Get vertices for plotting.
         if not self.is_open:
             vertices = self.vertices
         else: # we draw an hyperplane by shoting the vertices in the direction of the rays
@@ -201,22 +226,24 @@ class Polytope:
             vertices = np.vstack((self.vertices, *new_vertices))
 
         if len(vertices) == 0:
-            return  # Nothing to plot if no vertices
+            return  # Nothing to plot if no vertices.
 
-        # define plotting dimensions
+        # define plotting dimensions.
         n_dim = vertices.shape[1]
-        projection_dims = list(set(projection_dims)) # remove duplicates 
 
-        if projection_dims is None or len(projection_dims) == 0:
-            projection_dims = [i for i in range(min(3, n_dim))]  # Default to first 3 dimensions
-        else :
-            if len(projection_dims) > 3:
-                raise ValueError("Cannot plot polytopes with more than 3 dimensions.")
-            if len(projection_dims) > n_dim:
-                raise ValueError(f"Polytope does not have enough dimensions for the given list.")
+        if len(projection_dims) == 0:
+            projection_dims = [i for i in range(min(3, n_dim))] # plot at most 3d.
+        else:
+            projection_dims = list(set(projection_dims)) # remove duplicates.
+
+        # check that dimensions required are feasible for projection.
+        if len(projection_dims) > 3:
+            raise ValueError("Cannot plot polytopes with more than 3 dimensions.")
+        if len(projection_dims) > n_dim:
+            raise ValueError(f"Polytope does not have enough dimensions for the given list.")
         
         try :
-            C = selection_matrix_from_dims(n_dims = n_dim, selected_dims=projection_dims)
+            C = selection_matrix_from_dims(n_dims = n_dim, selected_dims=projection_dims) # this matrix 
         except IndexError as e:
             raise ValueError(f"you provide at least one dimension outside the dimensionality of the polytope. Raise exception issue: {e}")
 
@@ -229,21 +256,9 @@ class Polytope:
                 ax = fig.add_subplot(111, projection='3d')  # Ensure 3D projection
             else:
                 ax = fig.add_subplot(111)
-        else:
-            # If the provided axis is 2D but the polytope is 3D, convert it to 3D
-            if len(projection_dims) == 3 and not hasattr(ax, "get_proj"):
-                fig = ax.figure  # Get the current figure
-                # save limits
-                xlim = ax.get_xlim()
-                ylim = ax.get_ylim()
-                
-                fig.delaxes(ax)  # Remove the old 2D axis
-                ax = fig.add_subplot(111, projection='3d')  # Replace with a 3D axis
-
-                # set limits as per teh previois axis 
-                ax.set_xlim(xlim)   
-                ax.set_ylim(ylim)
-                ax.set_zlim(xlim)
+        else :
+            if len(projection_dims) == 3 and not hasattr(ax, "set_zlabel"):
+                raise ValueError("The provided axis is not a 3D axis. Please provide a 3D axis for 3D plotting. Consider provide the argument projected_dims=[0,1] to plot on 2D. Otherwise provde 3d axis.")
         
         # create convex hull
         try:
@@ -300,9 +315,13 @@ class Polytope:
     def projection(self, dims):
         """
         Project the polytope onto the subspace of 'dims' using cddlib block_elimination.
-        Args:
-            dims (list): Indices of the dimensions to keep.
+
+        :param dims: List of dimensions to project onto.
+        :type dims: list[int]
+        :return: A new Polytope object representing the projected polytope.
+        :rtype: Polytope
         """
+
         A = self.A
         b = self.b
 
@@ -335,8 +354,11 @@ class Polytope:
     def intersect(self, other):
         """
         Compute the intersection of two polytopes (self and other).
-        Returns:
-            A new Polytope representing the intersection.
+
+        :param other: Another Polytope object to intersect with.
+        :type other: Polytope
+        :return: A new Polytope object representing the intersection.
+        :rtype: Polytope
         """
         # Combine the inequalities from both polytopes
         combined_A = np.vstack([self.A, other.A])
@@ -353,18 +375,24 @@ class Polytope:
     def __and__(self, other):
         """
         Compute the intersection of two polytopes using the '&' operator.
-        Returns:
-            A new Polytope representing the intersection.
+        
+        :param other: Another Polytope object to intersect with.
+        :type other: Polytope
+        :return: A new Polytope object representing the intersection.
+        :rtype: Polytope
         """
         return self.intersect(other)
 
     def contains(self, x, tol=1e-8):
         """
         Check if a point x is inside the polytope.
-        Args:
-            x: A point as a numpy array.
-        Returns:
-            True if the point is inside the polytope, False otherwise.
+        
+        :param x: A point as a numpy array.
+        :type x: numpy.ndarray
+        :param tol: Tolerance for numerical stability.
+        :type tol: float
+        :return: True if the point is inside the polytope, False otherwise.
+        :rtype: bool
         """
         # Check if Ax <= b holds for the point x
         return np.all(np.dot(self.A, x) <= self.b + tol)
@@ -376,6 +404,12 @@ class Polytope:
         - Selects 3 random vertices
         - Takes a convex combination using Dirichlet distribution
         - Adds a random non-negative linear combination of rays
+
+
+        :param num_samples: Number of random samples to generate.
+        :type num_samples: int
+        :return: Array of random samples in shape [dim, num_samples].
+        :rtype: numpy.ndarray
         """
 
         vertices = self.vertices.T  # shape [dim, num_vertices]
@@ -407,10 +441,6 @@ class Polytope:
     def __contains__(self, x):
         """
         Check if a point x is inside the polytope.
-        Args:
-            x: A point as a numpy array.
-        Returns:
-            True if the point is inside the polytope, False otherwise.
         """
         return self.contains(x)
 
@@ -440,8 +470,13 @@ class Polytope:
     
     def get_inflated_polytope_to_dimension(self, dim:int):
         """
-        Creates a polytope with the given dimension out of the lower dimension polytope by expanding the A matrix on the right with additional zeros.
-        This is useful for example to expand the constrants on the position of a double integrator to an appropriate dimension
+        For a given polytope Ax-b, it infaltez the polytope by padding the matrix A with zero such that 
+        new_A = [A|0] for a given number of zeros.
+
+        :param dim: Desired dimension of the inflated polytope.
+        :type dim: int
+        :return: A new Polytope object representing the inflated polytope.
+        :rtype: Polytope
         """
 
         # Get the current dimensions of the polytope
@@ -469,12 +504,14 @@ class BoxNd(Polytope):
 
     def __init__(self,n_dim:int,  size:float|list[float], center:np.ndarray = None) -> None:
         """
-        Args:
-            center : np.ndarray
-                center of the box
-            size : float
-                size of the box
-
+        Initialize a box in nD space. The size and center length must match the number of dimensions. The size can be a simple float, in this case the box will have save width in all dimensions.
+        
+        :param n_dim: Number of dimensions of the box
+        :type n_dim: int
+        :param size: Size of the box. If a single value is provided, it is used for all dimensions.
+        :type size: float or list[float]
+        :param center: Center of the box. If None, it is set to the origin.
+        :type center: np.ndarray
         """
 
         if center is None:
@@ -507,16 +544,12 @@ class Box2d(BoxNd):
 
     def __init__(self, x:float, y:float, size:float|list[float] ) -> None:
         """
-        Args:
-            x : float
-                x coordinate of the box
-            y : float
-                y coordinate of the box
-            w : float
-                width of the box
-            h : float
-                height of the box
-
+        :params x: x coordinate of the box
+        :type x: float
+        :params y: y coordinate of the box
+        :type y: float
+        :params size: size of the box [width,height]. If a single value is provided, it is used for all dimensions.
+        :type size: float or list[float]
         """
         self.x = x
         self.y = y
@@ -527,13 +560,14 @@ class Box3d(BoxNd):
 
     def __init__(self, x:float, y:float, z:float, size: float|list[float]) -> None:
         """
-        Args:
-            x : float
-                x coordinate of the box
-            y : float
-                y coordinate of the box
-            z : float
-                z coordinate of the box
+        :params x: x coordinate of the box
+        :type x: float
+        :params y: y coordinate of the box
+        :type y: float
+        :params z: z coordinate of the box
+        :type z: float
+        :params size: size of the box [width,height,depth]. If a single value is provided, it is used for all dimensions.
+        :type size: float or list[float]
         """
         self.x = x
         self.y = y
@@ -542,54 +576,22 @@ class Box3d(BoxNd):
         super().__init__(n_dim = 3, size = size, center = center)
 
 
-class Geq2d(Polytope):
-    def __init__(self, coordinate : str, bound : float) :
-        """
-        Args:
-            coordinate : str
-                coordinate of the box
-            bound : float
-                bound of the box
-        """
-        if coordinate == "x":
-            A = np.array([[-1., 0]])
-        elif coordinate == "y":
-            A = np.array([[0., -1]])
-        else:
-            raise ValueError("coordinate should be either x or y")
-        
-        b = -np.array([bound])
 
-        super().__init__(A, b)
-
-class Leq2d(Polytope):
-    def __init__(self, coordinate : str, bound : float) :
-        """
-        Args:
-            coordinate : str
-                coordinate of the box
-            bound : float
-                bound of the box
-        """
-        if coordinate == "x":
-            A = np.array([[1., 0]])
-        elif coordinate == "y":
-            A = np.array([[0., 1]])
-        else:
-            raise ValueError("coordinate should be either x or y")
-        
-        b = np.array([bound])
-
-        super().__init__(A, b)
-
-
-def concatenate_diagonally(*polytopes: Polytope ):
+def cartesian_product(*polytopes: Polytope ):
     """
-    Concatenate polytopes diagonally to create a new polytope.
-    Args:
-        *polytopes: List of Polytope objects to concatenate.
-    Returns:
-        A new Polytope object representing the concatenated polytope.
+    Cartesian product of two polytopes. Polytopes are stacked vertically such that 
+
+    .. math: 
+        A = diag(A1, A2, ... An)
+
+        b = [b1, b2, ... bn]
+    
+
+    :param polytopes: List of Polytope objects to be combined.
+    :type polytopes: list[Polytope]
+    :return: A new Polytope object representing the Cartesian product.
+    :rtype: Polytope
+   
     """
     A = np.diag([polytope.A for polytope in polytopes])
     b = np.concatenate([polytope.b for polytope in polytopes])
@@ -601,14 +603,14 @@ def concatenate_diagonally(*polytopes: Polytope ):
 
 def selection_matrix_from_dims(n_dims :int , selected_dims : list[int]|int ) :
     """
-    Create a selection matrix to select specific dimensions from a higher-dimensional space.
-    Args:
-        n_dims: int
-            Total number of dimensions.
-        selected_dims: list[int] | int
-            Indices of the dimensions to select.
-    Returns:
-        numpy.ndarray: Selection matrix.
+    Creates a matrix to project a given vector of dimension n_dim to the selected dimensions, such that :math:'y = Cx' where x is the vector of dimension n_dim and y is the vector of dimension len(selected_dims).
+
+    :param n_dims: Number of dimensions of the original vector.
+    :type n_dims: int
+    :param selected_dims: List of dimensions to select. If a single integer is provided, it is converted to a list.
+    :type selected_dims: list[int] or int
+    :return: Selection matrix of shape (len(selected_dims), n_dims).
+    :rtype: numpy.ndarray
     """
     if isinstance(selected_dims, int):
         selected_dims = [selected_dims]

@@ -4,7 +4,17 @@ class ContinuousLinearSystem:
     """
     Very simple class to define a linear system storing the matrices A abd B
     """
-    def __init__(self, A : np.ndarray, B:np.ndarray, C:np.ndarray , dt :float = 0.1):
+    def __init__(self, A : np.ndarray, B:np.ndarray, C:np.ndarray = None , dt :float = 0.1):
+        """
+        :param A: state matrix
+        :type A: np.ndarray
+        :param B: input matrix
+        :type B: np.ndarray
+        :param C: output matrix
+        :type C: np.ndarray
+        :param dt: sampling time used inside the controllers (like MPC,QP or PID)
+        :type dt: float
+        """
         
         self.A  = A # 
         self.B  = B
@@ -18,13 +28,17 @@ class ContinuousLinearSystem:
         # dimensionality checks
         assert self.A.shape[0] == self.A.shape[1], "Matrix A must be square"
         assert self.A.shape[0] == self.B.shape[0], "Matrix A and B must have compatible dimensions"
-        assert self.A.shape[0] == C.shape[1], "Matrix A and C must have compatible dimensions"
+        assert self.A.shape[0] == self.C.shape[1], "Matrix A and C must have compatible dimensions"
        
     
-    def controllability_matrix(self):
+    def controllability_matrix(self) -> np.ndarray:
         """
         Compute the controllability matrix
+        
+        :return: controllability matrix
+        :rtype: np.ndarray
         """
+        
         n = self.A.shape[0]
         m = self.B.shape[1]
         ctrb_matrix = np.zeros((n, n * m))
