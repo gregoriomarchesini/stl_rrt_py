@@ -114,6 +114,15 @@ class TimeInterval :
         else :
             return a + np.random.rand() * (b-a)
         
+    def _add__ (self, t : float) -> "TimeInterval":
+        """Minkowsky sum return the interval [a+t,b+t]"""
+        a,b = self._a,self._b
+        return TimeInterval(a = a + t, b = b + t)
+
+    def __radd__(self, t : float) -> "TimeInterval":
+        """Minkowsky sum , also for t + time_interval"""
+        return self._add__(t)
+
     def __repr__(self)-> str:
         """string representation"""
         return f"TimeInterval({self._a},{self._b})"

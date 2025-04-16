@@ -699,66 +699,61 @@ class Predicate(Formula) :
         super().__init__(root = PredicateNode(polytope = polytope , dims = dims , name = name))
 
 
-def get_type_polytope_and_output_dims(formula : Formula ) -> tuple[str,Polytope,list[int]] :
 
-    if not isinstance(formula,Formula): 
+def get_fomula_type_and_predicate_node(formula : Formula ) -> tuple[str,PredicateNode] :
+
+    """
+    This function takes a fomula anch check if it is a G, F, GF or FG operator. If it is not of these types then it resturns an error.
+
+    :param formula: Formula to check
+    :type formula: Formula
+    :return: Tuple with the type of the formula and the predicate node
+    :rtype: tuple[str,PredicateNode]
+    """
+
+    if not isinstance(formula,Formula) : 
         raise ValueError("The formula must be of type Formula")
  
     root_node : Node = formula.root
     if isinstance(root_node,GOp):
         if isinstance(root_node.children[0],PredicateNode):
-            return "G", root_node.children[0].polytope, root_node.children[0].dims
+            predicate_node = root_node.children[0]
+            return "G", predicate_node
     
     if isinstance(root_node,FOp):
         if isinstance(root_node.children[0],PredicateNode):
-            return "F", root_node.children[0].polytope, root_node.children[0].dims
+            predicate_node = root_node.children[0]
+            return "F", predicate_node
+        
     
     if isinstance(root_node,GOp):
         if isinstance(root_node.children[0],FOp):
             if isinstance(root_node.children[0].children[0],PredicateNode):
-                return "GF", root_node.children[0].children[0].polytope,root_node.children[0].children[0].dims
+                predicate_node = root_node.children[0].children[0]
+                return "GF", predicate_node
     
     if isinstance(root_node,FOp):
         if isinstance(root_node.children[0],GOp):
             if isinstance(root_node.children[0].children[0],PredicateNode):
-                return "FG", root_node.children[0].children[0].polytope,root_node.children[0].children[0].dims
-
-    raise ValueError("The given formula is not part of the STL syntax currently supported. Until operator is coming. Please verify the fragment you are using.")
-
+                predicate_node = root_node.children[0].children[0]
+                return "FG", predicate_node
     
+    raise ValueError("The given formula is not part of the STL syntax currently supported. Until operator is coming. Please verify the fragment you are using. The fomula should be a conjunction of subformulas of type G, F, GF or FG")
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-if __name__ == "__main__":
+# if __name__ == "__main__":
     
     
-    A = np.array([[1, 0], [-1, 0], [0, 1], [0, -1]])
-    b = np.array([1, 1, 1, 1])
-    polytope = Polytope(A, b)
+#     A = np.array([[1, 0], [-1, 0], [0, 1], [0, -1]])
+#     b = np.array([1, 1, 1, 1])
+#     polytope = Polytope(A, b)
 
-    # Create a predicate node
-    predicate_node = Predicate(polytope)
-    formula        = (~((((GOp(a=0, b=1) >> predicate_node) |  (GOp(a=0, b=1) >> (~predicate_node) ))) << UOp(1,2) >>  ((GOp(a=0, b=1) >> predicate_node) &  (GOp(a=0, b=1) >> (~predicate_node) )))) & (~((((GOp(a=0, b=1) >> predicate_node) |  (GOp(a=0, b=1) >> (~predicate_node) ))) << UOp(1,2) >>  ((GOp(a=0, b=1) >> predicate_node) &  (GOp(a=0, b=1) >> (~predicate_node) ))))
+#     # Create a predicate node
+#     predicate_node = Predicate(polytope)
+#     formula        = (~((((GOp(a=0, b=1) >> predicate_node) |  (GOp(a=0, b=1) >> (~predicate_node) ))) << UOp(1,2) >>  ((GOp(a=0, b=1) >> predicate_node) &  (GOp(a=0, b=1) >> (~predicate_node) )))) & (~((((GOp(a=0, b=1) >> predicate_node) |  (GOp(a=0, b=1) >> (~predicate_node) ))) << UOp(1,2) >>  ((GOp(a=0, b=1) >> predicate_node) &  (GOp(a=0, b=1) >> (~predicate_node) ))))
 
-    stl_graph(formula,debug=    True)
+#     stl_graph(formula,debug=    True)
 
-    # Show the animation
-    plt.tight_layout()
-    plt.show()
+#     # Show the animation
+#     plt.tight_layout()
+#     plt.show()

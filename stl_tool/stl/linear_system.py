@@ -88,3 +88,64 @@ class ContinuousLinearSystem:
                 return np.eye(self.A.shape[0])[dims,:]
             except IndexError:
                 raise ValueError(f"Dimensions {dims} are out of range for the system with size {self.A.shape[0]}")
+            
+
+
+class SingleIntegrator3d(ContinuousLinearSystem):
+    """
+    Simple 3D single integrator system
+    """
+    def __init__(self, dt = 0.1):
+        """
+        Initialize the single integrator system.
+        """
+        A = np.zeros((3,3))
+        B = np.eye(3) 
+        super().__init__(A, B, dt = dt)
+
+class ISSDeputy(ContinuousLinearSystem):
+
+    def __init__(self,dt = 0.1,r0 :float = 6771000):
+        """
+        Initialize the ISS deputy system with Clohessy-Wiltshire dynamics.
+        """
+        # Define the orbital radius of the chief satellite (ISS)
+        A,B = self.cw_dynamics_matrix(r0)
+        super().__init__(A, B, dt = dt)
+
+
+    def cw_dynamics_matrix(self,r0, mu=3.986004418e14):
+        """
+        Returns the linear dynamics matrix A of the Clohessy-Wiltshire equations.
+        
+        Parameters:
+            r0 : float
+                Orbital radius of the chief satellite [meters]
+            mu : float, optional
+                Gravitational parameter of the Earth [m^3/s^2], default is Earth's
+        
+        Returns:
+            A : ndarray
+                6x6 dynamics matrix
+        """
+        n = np.sqrt(mu / r0**3)
+
+        A = np.array([
+            [0,    0,    0,    1,   0,   0],
+            [0,    0,    0,    0,   1,   0],
+            [0,    0,    0,    0,   0,   1],
+            [3*n**2, 0,    0,    0,  2*n, 0],
+            [0,    0,    0, -2*n,   0,   0],
+            [0,    0, -n**2,  0,   0,   0]
+        ])
+
+        B = np.array([
+            [0, 0, 0],
+            [0, 0, 0],
+            [0, 0, 0],
+            [1, 0, 0],
+            [0, 1, 0],
+            [0, 0, 1]
+        ])
+        
+        return A, B

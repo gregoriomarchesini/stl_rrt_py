@@ -239,15 +239,20 @@ class RRT:
 
 
          
-    def plot_rrt_solution(self, solution_only:bool = False, projection_dim:list[int] = []):
+    def plot_rrt_solution(self, solution_only:bool = False, projection_dim:list[int] = [], ax = None):
 
         # Remainder of the class remains the same (plot and animate methods)
 
 
         if len(projection_dim) == 0:
             projection_dim = [i for i in range(min(self.system.size_state, 3))] # default projection on the first tree/two dimensions
+        
 
-        fig,ax = self.map.draw(projection_dim = projection_dim) # creats already axes of good dimension and throws errors if the number of projected dimensions is wrong
+        if ax is None:
+            fig,ax = self.map.draw(projection_dim = projection_dim) # creats already axes of good dimension and throws errors if the number of projected dimensions is wrong
+        else:
+            fig = ax.figure
+
         
         C = selection_matrix_from_dims(self.system.size_state, projection_dim)
         

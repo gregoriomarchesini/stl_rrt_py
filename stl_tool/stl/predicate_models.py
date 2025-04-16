@@ -79,18 +79,19 @@ class BoxBound(Predicate):
             center = np.zeros(len(dims))
         else:
             center = np.array(center).flatten()
-            if center.shape[0] != len(dims):
-                raise ValueError(f"The center must be a {len(dims)}D vector when the given predicate dimensions are ({len(dims)})")
+            if len(center) != len(dims):
+                raise ValueError(f"The center must be a {len(dims)}D vector when the given predicate dimensions are ({len(dims)}). Given center: {center}")
         
-        if isinstance(size, float):
-            size = np.array([size] * 2*len(dims))
+        if not isinstance(size, list):
+            size = float(size)
+            size = np.array([size] *len(dims))
         else:
-            size = np.hstack((np.array(size).flatten(),np.array(size).flatten()))
-            if size.shape[0] != len(dims):
-                raise ValueError(f"The size must be a {len(dims)}D vector when the given predicate dimensions are ({len(dims)})")
+            size = np.array(size).flatten()
+            if len(size) != len(dims):
+                raise ValueError(f"The size must be a {len(dims)}D vector when the given predicate dimensions are ({len(dims)}). Given size: {size}")
        
 
-        b     = size / 2
+        b     = np.hstack((size,size)) / 2
         A     = np.vstack((np.eye(len(dims)), -np.eye(len(dims))))
         b_vec = b + A @ center  # Ensuring proper half-space representation
 

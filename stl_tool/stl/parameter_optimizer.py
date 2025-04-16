@@ -8,7 +8,17 @@ import json
 from multiprocessing import Pool
 
 
-from .logic         import Formula, AndOperator, Node, get_type_polytope_and_output_dims, OrOperator ,UOp, FOp, GOp
+from .logic         import (Formula, 
+                           AndOperator,    
+                           get_fomula_type_and_predicate_node, 
+                           OrOperator,
+                           UOp, FOp, GOp, 
+                           Predicate, PredicateNode)
+
+
+
+
+
 from .utils         import TimeInterval
 from .linear_system import ContinuousLinearSystem
 
@@ -34,16 +44,21 @@ class BarrierFunction :
         :type polytope: Polytope
         """
         
-        self._polytope   = polytope
-        self._task_type  = None
-
-        self._D_high_order : np.ndarray  = None
-        self._c_high_order : np.ndarray  = None
+        self.polytope   = polytope
+        self.task_type  = None                              # defines the type of tasks related to this barrier function
+        self.interval_satisfaction : TimeInterval = None    # defines the interval of uncertainity in which the task has to be
 
         self.alpha_var   : cp.Variable =  cp.Variable(nonneg=True)
         self.beta_var    : cp.Variable =  cp.Variable(nonneg=True)
-        self.gamma_0_var : cp.Variable =  cp.Variable((self._polytope.num_hyperplanes),nonneg=True)
+        self.gamma_0_var : cp.Variable =  cp.Variable((self.polytope.num_hyperplanes),nonneg=True)
         self.r_var       : cp.Variable =  cp.Variable(pos=True)
+
+        self._D_high_order = None
+        self._c_high_order = None
+        
+        #! do not touch!
+        self._a_prime : float = 0.0
+        self._b_prime : float = 0.0
         
         
     @property
@@ -70,28 +85,7 @@ class BarrierFunction :
             raise ValueError("R variable has not been set yet.")
         return self.r_var.value
     
-
-    @property
-    def D_high_order(self) -> np.ndarray:
-        if self._D_high_order is None:
-            return self.D
-        else :
-            return self._D_high_order
-    @property
-    def c_high_order(self)-> np.ndarray:
-        if self._c_high_order is None:
-            return self.c
-        else :
-            return self._c_high_order
-        
-    @property
-    def polytope(self)-> Polytope:
-        return self._polytope
     
-    @property
-    def task_type(self) -> str:
-        return self._task_type
-
     @property
     def D(self)-> np.ndarray:
         """
@@ -105,6 +99,19 @@ class BarrierFunction :
         c vector of the barrier function :math:`b(x,t) = Dx +c + \gamma(t)`
         """
         return self.polytope.b
+    
+    @property
+    def D_high_order(self) -> np.ndarray:
+        if self._D_high_order is None:
+            return self.D
+        else :
+            return self._D_high_order
+    @property
+    def c_high_order(self)-> np.ndarray:
+        if self._c_high_order is None:
+            return self.c
+        else :
+            return self._c_high_order
 
     @property
     def e1_var(self):
@@ -137,15 +144,6 @@ class BarrierFunction :
     @property
     def g2_value(self):
         return - self.r * np.ones(self.polytope.num_hyperplanes)
-    
-
-    @task_type.setter
-    def task_type(self, value):
-        if not isinstance(value, str):
-            raise ValueError("Task type must be a string.")
-        if value not in ["G", "F", "FG", "GF"]:
-            raise ValueError("Task type must be one of 'G', 'F', 'FG', or 'GF'.")
-        self._task_type = value
     
 
     def upsilon(self,t:float)-> int :
@@ -222,40 +220,81 @@ class TasksOptimizer:
         self._barriers         : list[BarrierFunction]  = []
         self._time_constraints : list[cp.Constraint]    = []
 
+        self.task_durations : list[dict]              = []
+
         self._time_varying_polytope_constraints : list[TimeVaryingConstraint] = []
 
         if workspace.is_open:
             raise ValueError("The workspace is an open Polyhedron. Please provide a closed polytope")
 
     def _create_barriers_and_time_constraints(self) :
+        """
+        From this function, the following tasks are accomplished:
+            1) The given formula is sectioned sub tasks varphi.
+            2) Each task var phi is converted into a barrier function.
+        """
 
-        #! create better initial time guesses
+     
         barriers         : list[BarrierFunction]    = []
         time_constraints : list[cp.Constraint]      = []
 
-        if isinstance(self.formula.root,OrOperator):
-            raise NotImplementedError("OrOperator is not implemented yet. Wait for it. it is coming soon.")
-        
-        elif isinstance(self.formula.root,AndOperator):
-            for child in self.formula.root.children: # saparate each branch into a single formula
-                self._varphi_formulas += [Formula(root = child)]
-        else:
-            self._varphi_formulas = [self.formula]            
-        
+        is_a_conjunction = False
 
-        self.tasks : list[dict] = []
+        # Check that the provided formula is within the fragment of allowable formulas.
+        if isinstance(self.formula.root,OrOperator): #1) the root operator can be an or, but it not implemented for now.
+            raise NotImplementedError("OrOperator is not implemented yet. Wait for it. it is coming soon.")
+        elif isinstance(self.formula.root,AndOperator): # then it is a conjunction of single formulas
+            is_a_conjunction = True
+        else: #otherwise it is a single formula
+            pass
+        
+        # subdivide in sumbformulas
+        possible_fomulas = ["G", "F", "FG", "GF"]
+        if is_a_conjunction :
+            for child_node in self.formula.root.children : # take all the children nodes and check that the remaining formulas are in the predicate
+                varphi = Formula(root = child_node)
+                varphi_type, predicate_node = get_fomula_type_and_predicate_node(formula = varphi)
+
+                if varphi_type in ["G","F","FG"] :
+                    self._varphi_formulas += [varphi]
+                    
+                elif varphi_type == "GF" : # decompose
+                    g_interval : TimeInterval = child_node.interval
+                    f_interval : TimeInterval = child_node.children.interval
+
+                    nf_min = np.ceil((g_interval.b - g_interval.a)/(f_interval.b - f_interval.a)) # minimum frequency of repetition
+                    m      = g_interval.a + f_interval.a
+
+                    delta       = g_interval.b - g_interval.a
+                    delta_prime = f_interval.b - f_interval.a
+
+                    for w in range(int(nf_min)):
+
+                        a_bar_w = m + w*delta/nf_min
+                        b_bar_w = m + w*delta_prime
+                        self._varphi_formulas += [ FOp(a = a_bar_w,b = b_bar_w) >> Predicate(polytope= predicate_node.polytope,dims = predicate_node.dims, name = predicate_node.name) ]
+                else:
+                    raise ValueError("At least one of the formulas set in conjunction is not within the currently allowed grammar. Please verify the predicates in the formula.")
+
+        
+        else: # if the task is not a conjunction then it is already an elementary task varphi
+            varphi_type, predicate_node = get_fomula_type_and_predicate_node(formula = self.formula)
+            self._varphi_formulas = [self.formula]    
         
         print("============================================================")
         print("Enumerating tasks")
         print("============================================================")
-        for formula in self._varphi_formulas:
+        
+        for varphi in self._varphi_formulas:
             try :
-                type_formula,polytope,dims = get_type_polytope_and_output_dims(formula)
+                varphi_type, predicate_node = get_fomula_type_and_predicate_node(formula = varphi)
             except ValueError:
                 raise ValueError("At least one of the formulas set in conjunction is not within the currently allowed grammar. Please verify the predicates in the formula.")
             
-            root    : Union[FOp,UOp,GOp] = formula.root
-            time_interval : TimeInterval = root.interval
+            root          : Union[FOp,UOp,GOp] = varphi.root
+            time_interval : TimeInterval       = root.interval
+            dims          : list[int]          = predicate_node.dims
+            polytope      : Polytope           = predicate_node.polytope
 
             try : 
                 C   = self.system.output_matrix_from_dimension(dims) 
@@ -266,130 +305,189 @@ class TasksOptimizer:
                 raise e
 
 
-            ## Create barrier.
+            # Change polytope to accomodate the dimension of the system using the output matrix
             A        = polytope.A@C # Expansion of the polytope to the dimension of the system.
             b        = polytope.b
             polytope = Polytope(A,b)
+            
+            # Create barrier functions for each task
+            if varphi_type == "G" :
 
-            if type_formula == "G" :
-
-
+                # Create barrier function.
                 barrier : BarrierFunction  = BarrierFunction(polytope)
-                barrier.task_type = type_formula
-                barriers.append(barrier)
-                time_constraints += [barrier.alpha_var == time_interval.a, barrier.beta_var == time_interval.b]
-
-                ## give initial guess
+                barrier.task_type          = varphi_type
+                
+                ## Give initial guess to the solver
                 barrier.alpha_var.value = time_interval.a
                 barrier.beta_var.value  = time_interval.b
 
-                start_time = formula.root.interval.a
-                duration   =  formula.root.interval.b - start_time
-                self.tasks.append({'start_time': start_time, 'duration': duration, 'type': type_formula})
-
-            elif type_formula == "F" :
-               
-
-                barrier : BarrierFunction = BarrierFunction(polytope)
-                barrier.task_type = type_formula
+                # save interval uncertainity for conflicting conjunction detection
+                barrier.interval_satisfaction = time_interval
+                
+                # add barrier to the list
                 barriers.append(barrier)
+                
+                # create time constraints
+                time_constraints += [barrier.alpha_var == time_interval.a, barrier.beta_var == time_interval.b]
+                
+                # add tasks to the list for plotting
+                start_time = time_interval.a
+                duration   =  time_interval.b - start_time
+                self.task_durations.append({'start_time': start_time, 'duration': duration, 'type': varphi_type})
+
+            elif varphi_type == "F" :
+
+                # Create barrier function.
+                barrier : BarrierFunction  = BarrierFunction(polytope)
+                barrier.task_type          = varphi_type
+                
+                ## Give initial guess to the solver
+                barrier.alpha_var.value = time_interval.a
+                barrier.beta_var.value  = time_interval.b
+
+                # save interval uncertainity for conflicting conjunction detection
+                barrier.interval_satisfaction = time_interval
+                
+                # add barrier to the list
+                barriers.append(barrier)
+                
+                # create time constraints
                 time_constraints += [barrier.alpha_var >= time_interval.a, 
                                     barrier.beta_var   == barrier.alpha_var,
                                     barrier.beta_var   <= time_interval.b]
-
-                ## give initial guess
-                barrier.alpha_var.value = time_interval.get_sample()
-                barrier.beta_var.value  = barrier.alpha_var.value+0.003
-
-                start_time = formula.root.interval.a
-                duration   =  formula.root.interval.b - start_time
-                self.tasks.append({'start_time': start_time, 'duration': duration, 'type': type_formula})
-
-            elif type_formula == "FG":
-
-
-                time_interval_prime : TimeInterval    = root.children[0].interval
-                barrier             : BarrierFunction = BarrierFunction(polytope)
                 
-                barrier.task_type = type_formula
-                barriers.append(barrier)
-                time_constraints += [barrier.alpha_var >= time_interval.a +  time_interval_prime.a, 
-                                    barrier.alpha_var <= time_interval.b +  time_interval_prime.a,
-                                    barrier.beta_var == barrier.alpha_var + (time_interval_prime.b - time_interval_prime.a)]
+                # add tasks to the list for plotting
+                start_time = time_interval.a
+                duration   =  time_interval.b - start_time
+                self.task_durations.append({'start_time': start_time, 'duration': duration, 'type': varphi_type})
+  
+
+            elif varphi_type == "FG":
+
+
+                time_interval_prime : TimeInterval    = root.children[0].interval # extract interval of the operator G
+
+                # Create barrier function.
+                barrier : BarrierFunction  = BarrierFunction(polytope)
+                barrier.task_type          = varphi_type
                 
-                ## give initial guess
+                ## Give initial guess to the solver
                 barrier.alpha_var.value = time_interval.get_sample() + time_interval_prime.a
                 barrier.beta_var.value  = barrier.alpha_var.value + (time_interval_prime.b - time_interval_prime.a)
 
-                start_time = formula.root.interval.a + formula.root.children[0].interval.a
-                duration   =  (formula.root.interval.b + formula.root.children[0].interval.b) - start_time
-                self.tasks.append({'start_time': start_time, 'duration': duration, 'type': type_formula})
-
-            elif type_formula == "GF":
-
-                start_time = formula.root.interval.a + formula.root.children[0].interval.a
-                duration   =  (formula.root.interval.b + formula.root.children[0].interval.b) - start_time
-                self.tasks.append({'start_time': start_time, 'duration': duration, 'type': type_formula})
-
-
-                time_interval_prime : TimeInterval = root.children[0].interval
-                min_repetitions = np.ceil(time_interval.period/time_interval_prime.period)
+                # save interval uncertainity for conflicting conjunction detection
+                barrier.interval_satisfaction = time_interval
                 
-                barriers_rep      : list[BarrierFunction] = []
-
-                barrier_1         = BarrierFunction(polytope)
-                barrier_1.task_type = type_formula
-                time_constraints += [barrier_1 .alpha_var >= time_interval.a +  time_interval_prime.a, 
-                                        barrier_1 .alpha_var <= time_interval.a +  time_interval_prime.b,
-                                       barrier_1.beta_var == barrier_1.alpha_var]
+                # add barrier to the list
+                barriers.append(barrier)
                 
-                barriers_rep     += [barrier_1]
-                ## give initial guess 
-                barrier_1.alpha_var.value = time_interval_prime.get_sample() + time_interval.a
-                barrier_1.beta_var.value  = barrier_1.alpha_var.value 
-
-
-                for i in range(1,int(min_repetitions)-1):
-                    barrier = BarrierFunction(polytope)
-                    barrier.task_type = type_formula
-                    barriers.append(barrier)
-                    
-                    barriers_prev = barriers_rep[i-1]
-
-                    time_constraints += [barrier.alpha_var >=  barriers_prev.alpha_var , 
-                                         barrier.alpha_var <=  barriers_prev.alpha_var + time_interval_prime.period,
-                                         barrier.beta_var == barrier.alpha_var]
-                     
-                    barriers_rep.append(barrier)
-                    
-                    ## give initial guess 
-                    barrier.alpha_var.value = barriers_prev.alpha + time_interval_prime.period/2
-                    barrier.beta_var.value  = barrier.alpha_var.value 
-
-
+                # create time constraints
+                time_constraints += [barrier.alpha_var >= time_interval.a +  time_interval_prime.a, 
+                                     barrier.alpha_var <= time_interval.b +  time_interval_prime.a,
+                                     barrier.beta_var  == barrier.alpha_var + (time_interval_prime.b - time_interval_prime.a)]
                 
-                barrier_last = BarrierFunction(polytope)
-                barrier_last.task_type = type_formula
-                time_constraints += [barrier_last.alpha_var >= time_interval.b +  time_interval_prime.a, 
-                                     barrier_last.alpha_var <= time_interval.b +  time_interval_prime.b,
-                                     barrier_last.beta_var == barrier_last.alpha_var]
+    
+                start_time = time_interval.a + time_interval_prime.a
+                duration   =  (time_interval.b  + time_interval_prime.b) - start_time
+                self.task_durations.append({'start_time': start_time, 'duration': duration, 'type': varphi_type})    
                 
-                barriers.append(barrier_last)
+                # these are neeeded to detect a possible conflicting conjuntion
+                barrier._a_prime = time_interval_prime.a
+                barrier._b_prime =time_interval_prime.b
 
-                ## give initial guess
-                barrier_last.alpha_var.value =  time_interval_prime.get_sample() + time_interval.b
-                barrier_last.beta_var.value  =  barrier_last.alpha_var.value 
-                
+            else :
+                pass # formulas of type GF have already been decomposed into F formulas
             
-            print("Found Tasks of type: ", type_formula)
+            print("Found Tasks of type: ", varphi_type)
             print("Start time: ", start_time)
             print("Duration: ", duration)
             print("---------------------------------------------")
-        print("====== Enumeration completed =======================")
+
+
+        print("====== Enumeration completed =============================================")
 
         self._barriers         = barriers
         self._time_constraints = time_constraints
+        print("========= Cheking for possible conflicting conjuncitons ==================")
+        self.detect_conflicting_conjunctions_and_give_good_time_guesses()
 
+    
+    
+    def distace_between_polytopes(self,barrier_1 : BarrierFunction, barrier_2: BarrierFunction):
+        """
+        Use cvxpy to computer the distance between two polytopes inside two barrier functions"
+        """
+
+        x = cp.Variable((self.system.size_state,1))
+        y = cp.Variable((self.system.size_state,1))
+
+        A1,b1 = barrier_1.polytope.A, barrier_1.polytope.b
+        A2,b2 = barrier_2.polytope.A, barrier_2.polytope.b
+
+        constraints = [A1@x <= b1, A2@y <= b2]
+        cost = cp.norm(x-y,2)
+        problem = cp.Problem(cp.Minimize(cost), constraints)
+        problem.solve()
+
+        return cost.value
+    
+    
+    def detect_conflicting_conjunctions_and_give_good_time_guesses(self)-> None :
+        """ This check can be expensive if you have many tasks. But it can be useful to avoid problems"""
+        
+        always_barriers = [barrier for barrier in self._barriers if barrier.task_type == "G"]
+        
+        for barrier in self._barriers:
+            
+            time_interval = barrier.interval_satisfaction
+            if barrier.task_type == "F":
+                for always_barrier in always_barriers:
+                    always_time_interval = always_barrier.interval_satisfaction
+                    if time_interval in always_time_interval :
+                        if self.distace_between_polytopes(barrier,always_barrier) < 1E-2: # two separate if to avoid computing the distance condition for nothing
+                            message = (f"Found conflicting conjunctions: A task of type F_[a,b]\mu is conflicting with a task of type G_[a',b']\mu" +
+                                    "The time interval of the eventually is fully contained the the time interval of the always and the predicates have no intersection")
+                            raise Exception(message)
+                    else : # give good initial guess for the eventually to have both alpha and beta outside the always interval (on the right)
+                        
+                        epsilon = 1E-3
+                        barrier.alpha_var.value =  always_time_interval.b + epsilon
+                        barrier.beta_var.value  =  always_time_interval.b + epsilon
+
+            elif barrier.task_type == "G":
+                for always_barrier in always_barriers:
+                    if barrier != always_barrier:
+                        always_time_interval = always_barrier.interval_satisfaction
+                        if (time_interval / always_time_interval) is not None:
+                            if self.distace_between_polytopes(barrier,always_barrier) < 1E-2: # two separate if to avoid computing the distance condition for nothing
+                                message = (f"Found conflicting conjunctions: A task of type G_[a,b]\mu is conflicting with a task of type G_[a',b']\mu" +
+                                        "The interval of the tasks is intersectinig ")
+                                raise Exception(message)
+            
+            elif barrier.task_type == "FG":
+                
+                a_prime = barrier._a_prime
+                b_prime = barrier._b_prime
+
+                for always_barrier in always_barriers:
+                        always_time_interval = always_barrier.interval_satisfaction
+
+                        task_always_starts_in_the_always = (a_prime+time_interval) / always_time_interval is not None
+                        task_always_ends_in_the_always   = (b_prime+time_interval) / always_time_interval is not None
+                        
+                        if task_always_starts_in_the_always or task_always_ends_in_the_always:
+                            if self.distace_between_polytopes(barrier,always_barrier) < 1E-2: # two separate if to avoid computing the distance condition for nothing
+                                message = (f"Found conflicting conjunctions: A task of type F_[a,b]G_[a',b']\mu is conflicting with a task of type G_[a_bar,b_bar]\mu" +
+                                           "The time interval of the FG formula is such that the task either always starts in the interval of the always or it always ends in the interval of the always but the two do not have an intersecing predicate")
+                                raise Exception(message)
+                        else : # give good initial guess for the eventually to have both alpha and beta outside the always interval (on the right)
+                            
+                            epsilon = 1E-3
+                            barrier.alpha_var.value =  always_time_interval.b + a_prime
+                            barrier.beta_var.value  =  barrier.alpha_var.value + (b_prime - a_prime)
+
+
+    
     def _make_high_order_corrections(self, system : ContinuousLinearSystem, k_gain : cp.Parameter) -> int:
 
         """
@@ -449,16 +547,22 @@ class TasksOptimizer:
 
             if order == 0:
                 print(f"Found barrier function of order: {order}")
-                barrier._D_high_order = D
-                barrier._c_high_order = c
+                barrier.set_high_order_constraints(D,c)
             else:
                 print(f"Found barrier function of order: {order}")
-                barrier._D_high_order = barrier.D@cp.power(A + I*k_gain,order) 
-                barrier._c_high_order = cp.power(k_gain,order) * c
+                D_high_order = barrier.D@cp.power(A + I*k_gain,order) 
+                c_high_order = cp.power(k_gain,order) * c
+                barrier.set_high_order_constraints(D_high_order, c_high_order)
             
         return order
 
     def make_time_schedule(self) :
+        """
+        From this function, the following tasks are accomplished:
+            1) The given formula is sectioned sub tasks varphi.
+            2) Each task var phi is converted into a barrier function.
+            3) A time schedule for each task by assigning proper satisfaction and conclusion times to each task based on the temporal operators of the task.
+        """
 
         self._create_barriers_and_time_constraints()
         
@@ -468,14 +572,30 @@ class TasksOptimizer:
         normalizer = 50.
         lift_up_factor = 10.
         for barrier_i in self._barriers:
-            cost += cp.exp(- (barrier_i.beta_var - barrier_i.alpha_var) - normalizer)
             for barrier_j in self._barriers :
                 if barrier_i != barrier_j and barrier_i.task_type != "G":
-                    cost += lift_up_factor*cp.exp(-(barrier_i.alpha_var - barrier_j.alpha_var)/normalizer )
-                    cost += lift_up_factor*cp.exp(-(barrier_i.alpha_var - barrier_j.beta_var )/normalizer )
+
+                    # give cost based on the guessed ordering of the tasks: we want to maximazie distance between each point.
+                    # In order to do so we
+                    if barrier_i.alpha_var.value >= barrier_j.alpha_var.value :
+                        cost += lift_up_factor*cp.exp(-(barrier_i.alpha_var - barrier_j.alpha_var)/normalizer)
+                    else:
+                        cost += lift_up_factor*cp.exp(-(barrier_j.alpha_var - barrier_i.alpha_var)/normalizer)
                     
-                    cost += lift_up_factor*cp.exp(-(barrier_i.beta_var - barrier_j.beta_var )/normalizer)
-                    cost += lift_up_factor*cp.exp(-(barrier_i.beta_var - barrier_j.alpha_var)/normalizer)
+                    if barrier_i.beta_var.value >= barrier_j.alpha_var.value :
+                        cost += lift_up_factor*cp.exp(-(barrier_i.beta_var - barrier_j.alpha_var)/normalizer)
+                    else:
+                        cost += lift_up_factor*cp.exp(-(barrier_j.alpha_var - barrier_i.beta_var)/normalizer)
+
+                    if barrier_i.alpha_var.value >= barrier_j.beta_var.value :
+                        cost += lift_up_factor*cp.exp(-(barrier_i.alpha_var - barrier_j.beta_var)/normalizer)
+                    else:
+                        cost += lift_up_factor*cp.exp(-(barrier_j.beta_var - barrier_i.alpha_var)/normalizer)
+
+                    if barrier_i.beta_var.value >= barrier_j.beta_var.value :
+                        cost += lift_up_factor*cp.exp(-(barrier_i.beta_var - barrier_j.beta_var)/normalizer)
+                    else:
+                        cost += lift_up_factor*cp.exp(-(barrier_j.beta_var - barrier_i.beta_var)/normalizer)
 
 
         problem = cp.Problem(cp.Minimize(cost), self._time_constraints)
@@ -512,14 +632,14 @@ class TasksOptimizer:
         fig, ax = plt.subplots(figsize=(10, 4))
 
         # Plot each task as a thin bar on its own y-row
-        for i, task in enumerate(self.tasks):
+        for i, task in enumerate(self.task_durations):
             ax.broken_barh([(task["start_time"], task["duration"])], (i - 0.4, 0.8), facecolors='tab:blue')
 
         # Labeling
         ax.set_xlabel('Time')
         ax.set_ylabel('Task number')
-        ax.set_yticks(range(len(self.tasks)))
-        ax.set_yticklabels([f'Task {i+1}' for i in range(len(self.tasks))])
+        ax.set_yticks(range(len(self.task_durations)))
+        ax.set_yticklabels([f'Task {i+1}' for i in range(len(self.task_durations))])
         ax.grid(True)
 
 
@@ -571,6 +691,8 @@ class TasksOptimizer:
 
         A = self.system.A
         B = self.system.B
+        self.slack         = cp.Variable(nonneg = True)
+        self.slack_penalty = 10 
 
         constraints  :list[cp.Constraint]  = []
 
@@ -618,7 +740,7 @@ class TasksOptimizer:
                     D_high_order = barrier.D_high_order
                     c_high_order = barrier.c_high_order
 
-                    constraints        += [D_high_order @ dyn + e + k_gain * (D_high_order @ eta_ii_not_time + e*time + c_high_order + g) >= 0]
+                    constraints        += [D_high_order @ dyn + e + k_gain * (D_high_order @ eta_ii_not_time + e*time + c_high_order + g)  + self.slack>= 0]
 
         # Inclusion constraints
         betas        = list({ barrier.beta for barrier in self._barriers} | {0.}) # set inside the list removes duplicates if any.
@@ -668,7 +790,8 @@ class TasksOptimizer:
         cost = 0
         for barrier in self._barriers:
             cost += -barrier.r_var
-             
+            
+        cost += self.slack_penalty * self.slack**2
         problem = cp.Problem(cp.Minimize(cost), constraints)
         good_k_found = False
 
@@ -676,22 +799,34 @@ class TasksOptimizer:
         print("Selcting a good gain k ...")
         # when barriers have order highr than 1, the problem is no more dpp and thus it takes a lot of time to solve it.
         if order >= 1:
-            k_vals = np.arange(0.1, 10, 0.1)
+            k_vals = np.arange(0.01, 0.06, 0.05)
         else :
-            k_vals = np.arange(0.1, 100, 0.1)
+            k_vals = np.arange(0.01, 0.06, 0.05)
         
-
+        best_k    = k_vals[0]
+        best_slak = 1E10
         # Parallelize using multiprocessing
         for k_val in tqdm(k_vals):
             k_gain.value = k_val
     
-            problem.solve(warm_start=True, verbose=False)
-            if problem.status == cp.OPTIMAL:
+            problem.solve(warm_start=True, verbose=False,solver="MOSEK")
+            if problem.status == cp.OPTIMAL and self.slack.value < 1E-5:
+                best_k = k_val
                 good_k_found = True
                 break
+            else:
+                if self.slack.value <= best_slak :
+                    best_slak = self.slack.value
+                    best_k    = k_val 
+            print("-----------------------------------------------------------")
+            print("K value : ", k_val)
+            print("Slack value : ", self.slack.value)
 
         if not good_k_found:
-            print("No good k found. Please increase the range of k.")
+            print("No good k found. Please increase the range of k. Returing k with minimum violation")
+            k_gain.value = k_val
+            problem.solve(warm_start=True, verbose=False,solver="MOSEK")
+
 
 
 
@@ -699,7 +834,8 @@ class TasksOptimizer:
         print("Barrier functions optimization result")
         print("===========================================================")
         print("Status        : ", problem.status)
-        print("Optimal value : ", problem.value)
+        print("Optimal value : ", np.sum([-barrier.r_var.value for barrier in self._barriers]))
+        print("Maximum Slack violation : ", self.slack.value)
         print("-----------------------------------------------------------")
         print("Listing parameters per task")
 

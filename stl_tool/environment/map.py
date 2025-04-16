@@ -55,7 +55,7 @@ class Map:
             raise ValueError("obstacle must be a Box2d or list of Box2d. Given : {}".format(type(obstacle)))
     
 
-    def draw(self, projection_dim: list[int] = []) :
+    def draw(self, ax = None , projection_dim: list[int] = []) :
 
         if len(projection_dim) == 0:  
             # just project the first available dimensions 
@@ -66,7 +66,10 @@ class Map:
     
         # make appropriate projections
         if  len(projection_dim) == 2:
-            fig, ax = plt.subplots(figsize=(10, 10))
+            if ax is not None:
+                fig = ax.figure
+            else:
+                fig, ax = plt.subplots(figsize=(10, 10))
             # draw black contour of the workspace using vertices
             vertices = self.workspace.projection(projection_dim).vertices
             # add first vertex in the end to close the loop
@@ -74,8 +77,18 @@ class Map:
             ax.plot(vertices[:, 0], vertices[:, 1], 'k', linewidth=3)
 
         elif len(projection_dim) == 3:
-            fig = plt.figure(figsize=(10, 10))
-            ax = fig.add_subplot(111, projection='3d')
+            if ax is not None:
+                if not hasattr(ax, "get_proj"):
+                    print("Make new axis because the plot is 3d but the gives axis is not")
+                    fig = plt.figure(figsize=(10, 10))
+                    ax = fig.add_subplot(111, projection='3d')
+                else:
+                    fig = ax.figure
+            else:
+                #make 3d plot
+                fig = plt.figure(figsize=(10, 10))
+                ax = fig.add_subplot(111, projection='3d')
+
             # draw black contour of the workspace using vertices
             vertices = self.workspace.projection(projection_dim).vertices
             # add first vertex in the end to close the loop

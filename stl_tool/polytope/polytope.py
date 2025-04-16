@@ -497,6 +497,49 @@ class Polytope:
         return Polytope(new_A, self.b)
     
 
+    def cross(self,other : "Polytope") -> "Polytope":
+   
+        """
+        Cartesian product of two polytopes. Polytopes are stacked vertically such that 
+
+        .. math: 
+            A = diag(A1, A2, ... An)
+
+            b = [b1, b2, ... bn]
+        
+
+        :param polytopes: List of Polytope objects to be combined.
+        :type polytopes: list[Polytope]
+        :return: A new Polytope object representing the Cartesian product.
+        :rtype: Polytope
+    
+        """
+        A1 = self.A
+        A2 = other.A
+
+        block_matrix = np.block([
+                                    [A1, np.zeros((A1.shape[0], A2.shape[1]))],  # Top-left block: A1
+                                    [np.zeros((A2.shape[0], A1.shape[1])), A2]   # Bottom-right block: A2
+                                ])
+        
+        b = np.hstack((self.b, other.b))
+        # Ensure b is a 1D array
+        b = b.flatten()
+        
+        return Polytope(block_matrix , b)
+    
+    def __add__(self, other:"Polytope") -> "Polytope" :
+        """
+        Cartesian product of two polytopes using the '+' operator.
+        
+        :param other: Another Polytope object to combine with.
+        :type other: Polytope
+        :return: A new Polytope object representing the Cartesian product.
+        :rtype: Polytope
+        """
+        return self.cross(other)
+    
+
 class BoxNd(Polytope):
     """
     Box in nD space
@@ -574,6 +617,96 @@ class Box3d(BoxNd):
         self.z = z
         center = np.array([x, y, z])
         super().__init__(n_dim = 3, size = size, center = center)
+
+
+class Icosahedron(Polytope):
+
+
+    def __init__(self, radius=1.0, x=0.0, y=0.0, z=0.0):
+        H,b,_,_ = self._icosahedron_h_representation(radius, center = np.array([x,y,z]))
+        super().__init__(H, b)
+        
+
+
+    def _compute_plane_equation(self,v1, v2, v3):
+        """
+        Compute the plane equation (H, b) from the triangle defined by vertices v1, v2, v3.
+        H will be a normal vector, and b will be the distance to the origin.
+        """
+        # Vectors along the plane
+        v1_v2 = v2 - v1
+        v1_v3 = v3 - v1
+
+        # Normal vector to the plane (cross product)
+        normal = np.cross(v1_v2, v1_v3)
+
+        # Normalize the normal vector
+        normal = normal / np.linalg.norm(normal)
+
+        # Distance from the origin to the plane (dot product)
+        b = np.dot(normal, v1)
+
+        return normal, b
+
+    def _icosahedron_h_representation(self,radius=1.0, center=np.zeros(3), ellipsoid_axes=None):
+        """
+        Generate the icosahedron in H-representation (Hx <= b).
+        If ellipsoid_axes are provided, scale the icosahedron into an ellipsoid.
+        """
+        # Golden ratio
+        phi = (1 + np.sqrt(5)) / 2
+
+        # Vertices of an icosahedron centered at origin
+        verts = np.array([
+            [-1,  phi, 0],
+            [ 1,  phi, 0],
+            [-1, -phi, 0],
+            [ 1, -phi, 0],
+            [0, -1,  phi],
+            [0,  1,  phi],
+            [0, -1, -phi],
+            [0,  1, -phi],
+            [ phi, 0, -1],
+            [ phi, 0,  1],
+            [-phi, 0, -1],
+            [-phi, 0,  1],
+        ])
+
+        # Normalize to unit sphere and scale
+        verts = verts / np.linalg.norm(verts[0]) * radius
+        
+        # If ellipsoid_axes is provided, scale the vertices
+        if ellipsoid_axes:
+            verts[:, 0] *= ellipsoid_axes[0]  # Scale x-axis
+            verts[:, 1] *= ellipsoid_axes[1]  # Scale y-axis
+            verts[:, 2] *= ellipsoid_axes[2]  # Scale z-axis
+
+        # Translate to the desired center
+        verts += center
+
+        # Faces (indices into verts array)
+        faces = np.array([
+            [0, 11, 5], [0, 5, 1], [0, 1, 7], [0, 7, 10], [0, 10, 11],
+            [1, 5, 9], [5, 11, 4], [11, 10, 2], [10, 7, 6], [7, 1, 8],
+            [3, 9, 4], [3, 4, 2], [3, 2, 6], [3, 6, 8], [3, 8, 9],
+            [4, 9, 5], [2, 4, 11], [6, 2, 10], [8, 6, 7], [9, 8, 1],
+        ])
+
+        # Calculate the half-space representation (H, b) for each face
+        H_list = []
+        b_list = []
+        for face in faces:
+            v1, v2, v3 = verts[face]
+            normal, b = self._compute_plane_equation(v1, v2, v3)
+            H_list.append(normal)
+            b_list.append(b)
+
+        # Convert to numpy arrays
+        H = np.array(H_list)
+        b = np.array(b_list)
+
+        return H, b, verts, faces
+
 
 
 
