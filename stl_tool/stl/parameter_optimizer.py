@@ -250,79 +250,20 @@ class TasksOptimizer:
         
         # subdivide in sumbformulas
         possible_fomulas = ["G", "F", "FG", "GF"]
+        potential_varphi = []
         if is_a_conjunction :
             for child_node in self.formula.root.children : # take all the children nodes and check that the remaining formulas are in the predicate
                 varphi = Formula(root = child_node)
-                varphi_type, predicate_node = get_fomula_type_and_predicate_node(formula = varphi)
-
-                if varphi_type in ["G","F","FG"] :
-                    self._varphi_formulas += [varphi]
-                    
-                elif varphi_type == "GF" : # decompose
-                    g_interval : TimeInterval = child_node.interval
-                    f_interval : TimeInterval = child_node.children[0].interval # the single children of the always operator is the eventually
-
-                    nf_min = np.ceil((g_interval.b - g_interval.a)/(f_interval.b - f_interval.a)) # minimum frequency of repetition
-                    m      = g_interval.a + f_interval.a
-
-                    interval       = g_interval.b - g_interval.a
-                    interval_prime = f_interval.b - f_interval.a
-                    delta_bar   = 1/nf_min *(interval/interval_prime)
-
-                    a_bar_w = m
-
-                    for w in range(1,int(nf_min)+1):
-                        
-                        # keep order of defitiion as a_w_bar gets redefined
-                        b_bar_w = a_bar_w + w* 1* interval_prime
-                        a_bar_w = a_bar_w + w* 1* interval_prime
-
-                        self._varphi_formulas += [ FOp(a = a_bar_w,b = b_bar_w) >> Predicate(polytope= predicate_node.polytope,dims = predicate_node.dims, name = predicate_node.name) ]
-                else:
-                    raise ValueError("At least one of the formulas set in conjunction is not within the currently allowed grammar. Please verify the predicates in the formula.")
+                potential_varphi += [varphi]
+        else: 
+            potential_varphi = [self.formula]
 
         
-        else: # if the task is not a conjunction then it is already an elementary task varphi
-            varphi = self.formula
-            varphi_type, predicate_node = get_fomula_type_and_predicate_node(formula = self.formula)
+
+        for varphi in  potential_varphi : # take all the children nodes and check that the remaining formulas are in the predicate
             
-            if varphi_type == "GF" : # decompose
-                g_interval : TimeInterval = varphi.root.interval
-                f_interval : TimeInterval = varphi.root.children[0].interval
+            varphi_type, predicate_node = get_fomula_type_and_predicate_node(formula = varphi)
 
-                nf_min = np.ceil((g_interval.b - g_interval.a)/(f_interval.b - f_interval.a)) # minimum frequency of repetition
-                m      = g_interval.a + f_interval.a
-
-                interval       = g_interval.b - g_interval.a
-                interval_prime = f_interval.b - f_interval.a
-                delta_bar   = 1/nf_min *(interval/interval_prime)
-
-                a_bar_w = m
-
-                for w in range(1,int(nf_min)+1):
-                    
-                    # keep order of defitiion as a_w_bar gets redefined
-                    b_bar_w = a_bar_w + w* 1* interval_prime
-                    a_bar_w = a_bar_w + w* 1* interval_prime
-                    self._varphi_formulas += [ FOp(a = a_bar_w,b = b_bar_w) >> Predicate(polytope= predicate_node.polytope,dims = predicate_node.dims, name = predicate_node.name) ]
-            
-            elif varphi_type in possible_fomulas :
-                self._varphi_formulas += [varphi]
-            else:
-                raise ValueError("The given formula is not in the allowed fragment")
-
-         
-        
-        print("============================================================")
-        print("Enumerating tasks")
-        print("============================================================")
-        
-        for varphi in self._varphi_formulas:
-            try :
-                varphi_type, predicate_node = get_fomula_type_and_predicate_node(formula = varphi)
-            except ValueError:
-                raise ValueError("At least one of the formulas set in conjunction is not within the currently allowed grammar. Please verify the predicates in the formula.")
-            
             root          : Union[FOp,UOp,GOp] = varphi.root
             time_interval : TimeInterval       = root.interval
             dims          : list[int]          = predicate_node.dims
@@ -332,16 +273,11 @@ class TasksOptimizer:
                 C   = self.system.output_matrix_from_dimension(dims) 
             except Exception as e:
                 print(f"Error in output matrix creation. The error stems from the fact that the required dimension of one or more predicates in the formulas" +
-                      f"is out of range for the system e.g. a predicate is enforcing a specification of the state with index 3 but the state dimension is only 2. " +
-                      f"The raised exception is the following")
+                    f"is out of range for the system e.g. a predicate is enforcing a specification of the state with index 3 but the state dimension is only 2. " +
+                    f"The raised exception is the following")
                 raise e
-
-
-            # Change polytope to accomodate the dimension of the system using the output matrix
-            A        = polytope.A@C # Expansion of the polytope to the dimension of the system.
-            b        = polytope.b
-            polytope = Polytope(A,b)
             
+
             # Create barrier functions for each task
             if varphi_type == "G" :
 
@@ -366,6 +302,8 @@ class TasksOptimizer:
                 start_time = time_interval.a
                 duration   =  time_interval.b - start_time
                 self.task_durations.append({'start_time': start_time, 'duration': duration, 'type': varphi_type})
+
+                self._varphi_formulas += [varphi]
 
             elif varphi_type == "F" :
 
@@ -392,7 +330,9 @@ class TasksOptimizer:
                 start_time = time_interval.a
                 duration   =  (time_interval.b - start_time) + 0.1 # just for plotting added a o.1 to make singleton intervals visible
                 self.task_durations.append({'start_time': start_time, 'duration': duration, 'type': varphi_type})
-  
+
+                self._varphi_formulas += [varphi]
+
 
             elif varphi_type == "FG":
 
@@ -415,8 +355,8 @@ class TasksOptimizer:
                 
                 # create time constraints
                 time_constraints += [barrier.alpha_var >= time_interval.a +  time_interval_prime.a, 
-                                     barrier.alpha_var <= time_interval.b +  time_interval_prime.a,
-                                     barrier.beta_var  == barrier.alpha_var + (time_interval_prime.b - time_interval_prime.a)]
+                                    barrier.alpha_var <= time_interval.b +  time_interval_prime.a,
+                                    barrier.beta_var  == barrier.alpha_var + (time_interval_prime.b - time_interval_prime.a)]
                 
     
                 start_time = time_interval.a + time_interval_prime.a
@@ -425,11 +365,71 @@ class TasksOptimizer:
                 
                 # these are neeeded to detect a possible conflicting conjuntion
                 barrier._a_prime = time_interval_prime.a
-                barrier._b_prime =time_interval_prime.b
+                barrier._b_prime = time_interval_prime.b
 
-            else :
-                pass # formulas of type GF have already been decomposed into F formulas
-            
+                self._varphi_formulas += [varphi]
+
+
+            elif varphi_type == "GF" : # decompose
+                g_interval : TimeInterval = root.interval
+                f_interval : TimeInterval = root.children[0].interval # the single children of the always operator is the eventually
+
+                nf_min = np.ceil((g_interval.b - g_interval.a)/(f_interval.b - f_interval.a)) # minimum frequency of repetition
+                m      = g_interval.a + f_interval.a
+
+                interval       = g_interval.b - g_interval.a
+                interval_prime = f_interval.b - f_interval.a
+                delta_bar      = 1/nf_min *(interval/interval_prime)
+
+                tau_prev = m
+
+                for w in range(1,int(nf_min)+1):
+                    
+                    # keep order of defitiion as a_w_bar gets redefined
+                    b_bar_w = m + w* 1        * interval_prime
+                    a_bar_w = m + w* delta_bar* interval_prime
+
+                    self._varphi_formulas += [ FOp(a = a_bar_w,b = b_bar_w) >> Predicate(polytope= predicate_node.polytope,dims = predicate_node.dims, name = predicate_node.name) ]
+                    
+                    interval_w = TimeInterval(a = a_bar_w, b = b_bar_w)
+                    # Create barrier function.
+                    barrier : BarrierFunction  = BarrierFunction(polytope)
+                    barrier.task_type          = "F" # change type to eventually
+                    
+                    ## Give initial guess to the solver
+                    barrier.alpha_var.value =  interval_w.get_sample() 
+                    barrier.beta_var.value  =  barrier.alpha_var.value
+
+                    # save interval uncertainity for conflicting conjunction detection
+                    barrier.interval_satisfaction = interval_w
+                    
+                    # add barrier to the list
+                    barriers.append(barrier)
+                    
+                    # create time constraints
+                    time_constraints += [barrier.alpha_var >= tau_prev + 1        * interval_prime, 
+                                        barrier.alpha_var <= tau_prev + delta_bar* interval_prime, 
+                                        barrier.alpha_var == barrier.beta_var]
+                    
+                    tau_prev = barrier.alpha_var.value # this is the link to the previous task.
+    
+                    start_time = a_bar_w
+                    duration   =  (b_bar_w  + a_bar_w)
+                    self.task_durations.append({'start_time': start_time, 'duration': duration, 'type': varphi_type})    
+                    
+            else:
+                raise ValueError("At least one of the formulas set in conjunction is not within the currently allowed grammar. Please verify the predicates in the formula.")
+
+    
+    
+        
+        print("============================================================")
+        print("Enumerating tasks")
+        print("============================================================")
+        
+        for varphi in self._varphi_formulas:
+            varphi_type, predicate_node = get_fomula_type_and_predicate_node(formula = varphi)
+
             print("Found Tasks of type: ", varphi_type)
             print("Start time: ", start_time)
             print("Duration: ", duration)
