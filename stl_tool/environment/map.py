@@ -97,7 +97,8 @@ class Map:
         
         # draw obstacles
         for obstacle in self.obstacles:
-            obstacle.plot(ax, color='k', alpha=0.3, projection_dims = projection_dim)
+            # obstacle.plot(ax, color='k', alpha=0.3, projection_dims = projection_dim)
+            pass
         
         self.fig = fig
         self.ax  = ax

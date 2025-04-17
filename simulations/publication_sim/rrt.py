@@ -12,7 +12,7 @@ from copy import copy
 ##########################################################
 # Create work space and mapo
 ##########################################################
-workspace     = Box3d(x = 0,y = 0, z= 0, size = 2*250) 
+workspace     = Box3d(x = 0,y = 0, z= 0, size = 2*200) 
 map           = Map(workspace = workspace)
 
 # create obstacles 
@@ -27,7 +27,7 @@ map.draw(ax) # draw if you want :)
 # system and dynamics
 ##########################################################
 system        = SingleIntegrator3d(dt = 2.) # Example: r0 = 7000 km
-max_input     = 10.
+max_input     = 4.
 input_bounds  = Box3d(x = 0.,y = 0.,z=0.,size = max_input*2) 
 
 
@@ -69,7 +69,7 @@ map.show_point(x_0, color = 'r', label = 'start') # show start point
 
 scheduler = TasksOptimizer(formula, workspace,system) # create task optimizer
 scheduler.make_time_schedule()                 # create scheduling of the tasks
-# scheduler.plot_time_schedule()               # visualize distribution of tasks time durations :)
+scheduler.plot_time_schedule()               # visualize distribution of tasks time durations :)
 solver_stats = scheduler.optimize_barriers( input_bounds = input_bounds,     # optimize barrier functions
                                             x_0          = x_0)
 
@@ -83,26 +83,26 @@ time_varying_constraints = scheduler.get_barrier_as_time_varying_polytopes()
 # scheduler.show_time_varying_level_set()
 
 
-rrt_planner        = RRT(start_state    = x_0,
-                        system           = system,
-                        prediction_steps = 3,
-                        stl_constraints  = time_varying_constraints ,
-                        map              = map,
-                        max_input        = max_input,
-                        max_task_time    = formula.max_horizon(),
-                        max_iter         = 5000,
-                        bias_future_time = False,
-                        space_step_size  = 5,)
+# rrt_planner        = RRT(start_state    = x_0,
+#                         system           = system,
+#                         prediction_steps = 3,
+#                         stl_constraints  = time_varying_constraints ,
+#                         map              = map,
+#                         max_input        = max_input,
+#                         max_task_time    = formula.max_horizon(),
+#                         max_iter         = 5000,
+#                         bias_future_time = False,
+#                         space_step_size  = 5,)
 
 
 
-rrt_planner.plan()
-fig,ax = rrt_planner.plot_rrt_solution(ax = ax)
+# rrt_planner.plan()
+# fig,ax = rrt_planner.plot_rrt_solution(ax = ax)
 
 
 
-ax.scatter(x_0[0], x_0[1], color='r', label='start', s=100)
-plt.title("Box Predicate")
+# ax.scatter(x_0[0], x_0[1], color='r', label='start', s=100)
+# plt.title("Box Predicate")
 
 
 plt.show()

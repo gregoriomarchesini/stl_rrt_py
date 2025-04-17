@@ -817,8 +817,13 @@ class TasksOptimizer:
 
         # create problem and solve it
         cost = 0
-        for barrier in self._barriers:
-            cost += -barrier.r_var
+        # for barrier in self._barriers:
+        #     cost += -barrier.r_var
+
+        # for barrier in self._barriers:
+        #     cost += cp.sum(barrier.gamma_0_var)
+
+
             
         cost += slack_penalty * slack
         problem = cp.Problem(cp.Minimize(cost), constraints)
@@ -828,9 +833,9 @@ class TasksOptimizer:
         print("Selcting a good gain k ...")
         # when barriers have order highr than 1, the problem is no more dpp and thus it takes a lot of time to solve it.
         if order >= 1:
-            k_vals = np.arange(0.01, 0.06, 0.05)
+            k_vals = np.arange(0.001, 0.8, 0.005)
         else :
-            k_vals = np.arange(0.01, 0.06, 0.05)
+            k_vals = np.arange(0.001, 0.8, 0.005)
         
         best_k    = k_vals[0]
         best_slak = 1E10
