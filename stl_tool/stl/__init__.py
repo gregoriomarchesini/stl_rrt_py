@@ -1,4 +1,4 @@
-from stl_tool.stl.logic import FOp, GOp, UOp
+from stl_tool.stl.logic import FOp, GOp, UOp, Predicate, Formula
 from stl_tool.stl.linear_system import ContinuousLinearSystem,ISSDeputy,SingleIntegrator3d
 
 from stl_tool.stl.parameter_optimizer import TasksOptimizer
@@ -13,5 +13,7 @@ __all__ = [
     "TasksOptimizer",
     "BoxBound",
     "ISSDeputy",
-    "SingleIntegrator3d"
+    "SingleIntegrator3d",
+    "Predicate",
+    "Formula",
 ]

@@ -41,7 +41,7 @@ class RRT:
                        time_step_size   :float = 0.1,
                        bias_future_time :bool = True) -> None :
         
-
+        start_state            = np.array(start_state).flatten()
         self.system            = LinearSystem.c2d(system.A, system.B, dt = system.dt) # convert to discrete time system of openmpc
         self.start_time        = 0.                                                   # initial time
         self.start_cost        = 0.                                                   # start cost of the initial node
@@ -85,6 +85,10 @@ class RRT:
         self.solutions         = []  
 
         self.iteration         = 0
+
+        # if start if not in the workspace then throw an error
+        if not start_state in self.map.workspace:
+            raise ValueError(f"Start state {start_state} is not in the workspace.")
 
 
 
@@ -197,10 +201,11 @@ class RRT:
         rand_point_state   = nearest_node_state + direction
         rand_point         = np.hstack((rand_point_state, rand_point[self.TIME])) 
         
+        
         try:
             new_node, traj, is_in_collision,cost  = self.steer(nearest_node, rand_point)
         except Exception as e:
-            print(f"Error in steering at iteration {self.iteration}, with exception: {e}")
+            raise Exception(f"Error in steering at iteration {self.iteration}, with exception: {e}")
 
         if not is_in_collision:
             self.tree.append(new_node)
@@ -433,7 +438,7 @@ class RRTStar(RRT):
             expected_speed  = (np.linalg.norm(last_node_state - neighbour_state) + self.cost[last_node_index])/ (self.prediction_steps* self.system.dt + last_node_time)
             
             # attempt rewiring
-            if expected_speed < self.cost[neighbour_index]/neighbour_time:
+            if expected_speed > self.cost[neighbour_index]/neighbour_time:
                 # Rewire the tree
                 try :
                     #  Get trajectory between `from_node` and `to_node` in time `t_max`
@@ -457,7 +462,7 @@ class RRTStar(RRT):
                 
                 actual_new_speed = new_path_length/(self.prediction_steps* self.system.dt + last_node_time)
 
-                if (not is_in_collision) and (actual_new_speed <= self.cost[neighbour_index]/neighbour_time):
+                if (not is_in_collision) and (actual_new_speed >= self.cost[neighbour_index]/neighbour_time):
                     
                     self.parents[neighbour_index]      = last_node_index  # the new neighbour is the one that was just added
                     self.trajectories[neighbour_index] = x_trj

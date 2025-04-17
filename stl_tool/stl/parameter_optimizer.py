@@ -260,26 +260,58 @@ class TasksOptimizer:
                     
                 elif varphi_type == "GF" : # decompose
                     g_interval : TimeInterval = child_node.interval
-                    f_interval : TimeInterval = child_node.children.interval
+                    f_interval : TimeInterval = child_node.children[0].interval # the single children of the always operator is the eventually
 
                     nf_min = np.ceil((g_interval.b - g_interval.a)/(f_interval.b - f_interval.a)) # minimum frequency of repetition
                     m      = g_interval.a + f_interval.a
 
-                    delta       = g_interval.b - g_interval.a
-                    delta_prime = f_interval.b - f_interval.a
+                    interval       = g_interval.b - g_interval.a
+                    interval_prime = f_interval.b - f_interval.a
+                    delta_bar   = 1/nf_min *(interval/interval_prime)
 
-                    for w in range(int(nf_min)):
+                    a_bar_w = m
 
-                        a_bar_w = m + w*delta/nf_min
-                        b_bar_w = m + w*delta_prime
+                    for w in range(1,int(nf_min)+1):
+                        
+                        # keep order of defitiion as a_w_bar gets redefined
+                        b_bar_w = a_bar_w + w* 1* interval_prime
+                        a_bar_w = a_bar_w + w* 1* interval_prime
+
                         self._varphi_formulas += [ FOp(a = a_bar_w,b = b_bar_w) >> Predicate(polytope= predicate_node.polytope,dims = predicate_node.dims, name = predicate_node.name) ]
                 else:
                     raise ValueError("At least one of the formulas set in conjunction is not within the currently allowed grammar. Please verify the predicates in the formula.")
 
         
         else: # if the task is not a conjunction then it is already an elementary task varphi
+            varphi = self.formula
             varphi_type, predicate_node = get_fomula_type_and_predicate_node(formula = self.formula)
-            self._varphi_formulas = [self.formula]    
+            
+            if varphi_type == "GF" : # decompose
+                g_interval : TimeInterval = varphi.root.interval
+                f_interval : TimeInterval = varphi.root.children[0].interval
+
+                nf_min = np.ceil((g_interval.b - g_interval.a)/(f_interval.b - f_interval.a)) # minimum frequency of repetition
+                m      = g_interval.a + f_interval.a
+
+                interval       = g_interval.b - g_interval.a
+                interval_prime = f_interval.b - f_interval.a
+                delta_bar   = 1/nf_min *(interval/interval_prime)
+
+                a_bar_w = m
+
+                for w in range(1,int(nf_min)+1):
+                    
+                    # keep order of defitiion as a_w_bar gets redefined
+                    b_bar_w = a_bar_w + w* 1* interval_prime
+                    a_bar_w = a_bar_w + w* 1* interval_prime
+                    self._varphi_formulas += [ FOp(a = a_bar_w,b = b_bar_w) >> Predicate(polytope= predicate_node.polytope,dims = predicate_node.dims, name = predicate_node.name) ]
+            
+            elif varphi_type in possible_fomulas :
+                self._varphi_formulas += [varphi]
+            else:
+                raise ValueError("The given formula is not in the allowed fragment")
+
+         
         
         print("============================================================")
         print("Enumerating tasks")
@@ -358,7 +390,7 @@ class TasksOptimizer:
                 
                 # add tasks to the list for plotting
                 start_time = time_interval.a
-                duration   =  time_interval.b - start_time
+                duration   =  (time_interval.b - start_time) + 0.1 # just for plotting added a o.1 to make singleton intervals visible
                 self.task_durations.append({'start_time': start_time, 'duration': duration, 'type': varphi_type})
   
 
@@ -637,9 +669,9 @@ class TasksOptimizer:
 
         # Labeling
         ax.set_xlabel('Time')
-        ax.set_ylabel('Task number')
+        ax.set_ylabel("tasks")
         ax.set_yticks(range(len(self.task_durations)))
-        ax.set_yticklabels([f'Task {i+1}' for i in range(len(self.task_durations))])
+        ax.set_yticklabels([rf'\phi =  {task["type"]}  \mu' for task in self.task_durations])
         ax.grid(True)
 
 
@@ -657,10 +689,7 @@ class TasksOptimizer:
         ax.plot(t, card, label='Cardinality of Active Set')
         
         plt.tight_layout()
-        plt.show()
 
-
-    
     
     def optimize_barriers(self, input_bounds: Polytope , x_0 : np.ndarray) :
         
@@ -691,8 +720,8 @@ class TasksOptimizer:
 
         A = self.system.A
         B = self.system.B
-        self.slack         = cp.Variable(nonneg = True)
-        self.slack_penalty = 10 
+        slack         = cp.Variable(nonneg = True)
+        slack_penalty = 10000 
 
         constraints  :list[cp.Constraint]  = []
 
@@ -740,7 +769,7 @@ class TasksOptimizer:
                     D_high_order = barrier.D_high_order
                     c_high_order = barrier.c_high_order
 
-                    constraints        += [D_high_order @ dyn + e + k_gain * (D_high_order @ eta_ii_not_time + e*time + c_high_order + g)  + self.slack>= 0]
+                    constraints        += [D_high_order @ dyn + e + k_gain * (D_high_order @ eta_ii_not_time + e*time + c_high_order + g ) + slack>= 0]
 
         # Inclusion constraints
         betas        = list({ barrier.beta for barrier in self._barriers} | {0.}) # set inside the list removes duplicates if any.
@@ -791,7 +820,7 @@ class TasksOptimizer:
         for barrier in self._barriers:
             cost += -barrier.r_var
             
-        cost += self.slack_penalty * self.slack**2
+        cost += slack_penalty * slack
         problem = cp.Problem(cp.Minimize(cost), constraints)
         good_k_found = False
 
@@ -810,17 +839,17 @@ class TasksOptimizer:
             k_gain.value = k_val
     
             problem.solve(warm_start=True, verbose=False,solver="MOSEK")
-            if problem.status == cp.OPTIMAL and self.slack.value < 1E-5:
+            if problem.status == cp.OPTIMAL and slack.value < 1E-5:
                 best_k = k_val
                 good_k_found = True
                 break
             else:
-                if self.slack.value <= best_slak :
-                    best_slak = self.slack.value
+                if slack.value <= best_slak :
+                    best_slak = slack.value
                     best_k    = k_val 
             print("-----------------------------------------------------------")
             print("K value : ", k_val)
-            print("Slack value : ", self.slack.value)
+            print("Slack value : ", slack.value)
 
         if not good_k_found:
             print("No good k found. Please increase the range of k. Returing k with minimum violation")
@@ -835,7 +864,7 @@ class TasksOptimizer:
         print("===========================================================")
         print("Status        : ", problem.status)
         print("Optimal value : ", np.sum([-barrier.r_var.value for barrier in self._barriers]))
-        print("Maximum Slack violation : ", self.slack.value)
+        print("Maximum Slack violation : ", slack.value)
         print("-----------------------------------------------------------")
         print("Listing parameters per task")
 
@@ -908,7 +937,6 @@ class TasksOptimizer:
                 intersection.plot(ax,alpha=0.1)
                 # ax.set_title(f"Time-varying level set at t={t:.2f}")
         
-        plt.show()
 
             
 

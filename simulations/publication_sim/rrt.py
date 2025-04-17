@@ -5,13 +5,14 @@ from stl_tool.stl                     import GOp, FOp, TasksOptimizer, BoxBound,
 from stl_tool.environment             import Map,ISSModel
 from stl_tool.polytope                import Box2d,Box3d,Icosahedron
 
-from stl_tool.planners import RRTStar
+from stl_tool.planners import RRTStar,RRT
+from copy import copy
 
 
 ##########################################################
 # Create work space and mapo
 ##########################################################
-workspace     = Box3d(x = 0,y = 0, z= 0, size = 2*400) 
+workspace     = Box3d(x = 0,y = 0, z= 0, size = 2*250) 
 map           = Map(workspace = workspace)
 
 # create obstacles 
@@ -25,26 +26,38 @@ map.draw(ax) # draw if you want :)
 ##########################################################
 # system and dynamics
 ##########################################################
-system        = SingleIntegrator3d(dt = 0.5) # Example: r0 = 7000 km
-max_input     = 100.
+system        = SingleIntegrator3d(dt = 2.) # Example: r0 = 7000 km
+max_input     = 10.
 input_bounds  = Box3d(x = 0.,y = 0.,z=0.,size = max_input*2) 
 
 
 ##########################################################
 # STL specifications
 ##########################################################
-interest_point_1_center  = np.array([-80., 80., 0.])
+interest_point_1_center  = np.array([-100., 100., 0.])
 box_predicate_1          =  BoxBound(dims = [0,1,2], size = 70, center = interest_point_1_center)
+visit_time1               = 100.
 
-interest_point_2_center  = np.array([-80., -80., 0.])
+interest_point_2_center  = np.array([-100., -100., 0.])
 box_predicate_2          =  BoxBound(dims = [0,1,2], size = 70, center = interest_point_2_center)
+visit_time2               = 250.
 
-interest_point_3_center  = np.array([80., 80., 0.])
+interest_point_4_center  = np.array([0., 0., 100.])
+box_predicate_4          =  BoxBound(dims = [0,1,2], size = 70, center = interest_point_4_center)
+visit_time4               = 380.
+
+interest_point_3_center  = np.array([100., 100., 0.])
 box_predicate_3          =  BoxBound(dims = [0,1,2], size = 70, center = interest_point_3_center)
+visit_time3               = 480.
+
+visit_period             = 40
 
 
-
-formula        = (GOp(40.,45.) >> box_predicate_1)  & (FOp(100.,120.) >> box_predicate_2) & (FOp(280.,285.) >> box_predicate_3) 
+formula        = ((GOp(visit_time1,visit_time1+ visit_period) >> box_predicate_1)  & 
+                 (FOp(visit_time2,visit_time2+ visit_period) >> box_predicate_2) &  
+                 (GOp(visit_time4,visit_time4+ visit_period) >> box_predicate_4)  & 
+                 (FOp(visit_time3,visit_time3+ visit_period) >> box_predicate_3))
+ 
 fig,ax = map.draw_formula_predicate(formula = formula)
 # formula.show_graph()
 
@@ -69,26 +82,24 @@ scheduler.save_polytopes(filename= "test_polytopes")
 time_varying_constraints = scheduler.get_barrier_as_time_varying_polytopes()
 # scheduler.show_time_varying_level_set()
 
-print(time_varying_constraints[0].H)
-print(time_varying_constraints[1].H)
 
+rrt_planner        = RRT(start_state    = x_0,
+                        system           = system,
+                        prediction_steps = 3,
+                        stl_constraints  = time_varying_constraints ,
+                        map              = map,
+                        max_input        = max_input,
+                        max_task_time    = formula.max_horizon(),
+                        max_iter         = 5000,
+                        bias_future_time = False,
+                        space_step_size  = 5,)
 
-
-
-rrt_planner = RRTStar(start_state      = x_0,
-                      system           = system,
-                      prediction_steps = 15,
-                      stl_constraints  = time_varying_constraints ,
-                      map              = map,
-                      max_input        = 1000,
-                      max_task_time    = formula.max_horizon(),
-                      max_iter         = 10000,
-                      bias_future_time = False,
-                      space_step_size=10,)
 
 
 rrt_planner.plan()
 fig,ax = rrt_planner.plot_rrt_solution(ax = ax)
+
+
 
 ax.scatter(x_0[0], x_0[1], color='r', label='start', s=100)
 plt.title("Box Predicate")

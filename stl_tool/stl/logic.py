@@ -698,6 +698,25 @@ class Predicate(Formula) :
         """
         super().__init__(root = PredicateNode(polytope = polytope , dims = dims , name = name))
 
+    @property
+    def polytope(self) -> Polytope:
+        """
+        Get the polytope of the predicate
+        """
+        return self.root.polytope
+    @property
+    def dims(self)-> list[int]:
+        """
+        Get the dimensions of the predicate
+        """
+        return self.root.dims
+    @property
+    def name(self) -> str:
+        """
+        Get the name of the predicate
+        """
+        return self.root.name
+
 
 
 def get_fomula_type_and_predicate_node(formula : Formula ) -> tuple[str,PredicateNode] :
