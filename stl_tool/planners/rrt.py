@@ -593,10 +593,8 @@ class RRTStar(RRT):
                 self.trajectories[candidate_index] = x_trj
                 self.cost[candidate_index]         = actual_new_cost
 
+    
 
-    def get_smoothed_trajectory(self, rrt_solution : RRTSolution) -> list[np.ndarray]:
-    
-    
     
     def plan(self):
         """Run the RRT algorithm to find a path from start to goal with time constraints and barrier function."""
