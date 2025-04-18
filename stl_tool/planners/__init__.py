@@ -1,3 +1,3 @@
-from .rrt import RRT, RRTStar, BiasedSampler
+from .rrt import StlRRTStar, BiasedSampler
 
-___all__ = ["RRT", "RRTStar","BiasedSampler"]
+___all__ = ["StlRRTStar","BiasedSampler"]

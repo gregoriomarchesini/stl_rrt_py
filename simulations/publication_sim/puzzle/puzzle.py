@@ -5,7 +5,7 @@ from stl_tool.stl                     import GOp, FOp, TasksOptimizer, BoxBound,
 from stl_tool.environment             import Map,ISSModel
 from stl_tool.polytope                import Box2d,Box3d,Icosahedron
 
-from stl_tool.planners import RRTStar,RRT, BiasedSampler
+from stl_tool.planners import StlRRTStar, BiasedSampler
 from copy import copy
 from json import loads
 import os 
@@ -115,7 +115,9 @@ sampler = BiasedSampler(list_of_polytopes = list_of_polytopes,list_of_times = li
 prediction_steps   = 10
 space_step         = max_input/4 * dt * prediction_steps
 
-rrt_planner        = RRTStar(start_state     = x_0,
+
+
+rrt_planner    = StlRRTStar(start_state     = x_0,
                             system           = system,
                             prediction_steps = 6,
                             stl_constraints  = time_varying_constraints ,
@@ -127,22 +129,9 @@ rrt_planner        = RRTStar(start_state     = x_0,
                             rewiring_radius  = 100,
                             rewiring_ratio   = 1)
 
-# rrt_planner        = RRT(start_state    = x_0,
-#                         system           = system,
-#                         prediction_steps = 6,
-#                         stl_constraints  = time_varying_constraints ,
-#                         map              = map,
-#                         max_input        = max_input,
-#                         max_task_time    = formula.max_horizon(),
-#                         max_iter         = 5000,
-#                         space_step_size  = 4,
-#                         sampler          = sampler,
-#                         verbose= True,)
-
 
 rrt_planner.plan()
 fig,ax = rrt_planner.plot_rrt_solution(ax = ax)
-
 
 
 ax.scatter(x_0[0], x_0[1], color='r', label='start', s=100)
@@ -150,7 +139,5 @@ plt.title("Box Predicate")
 
 rrt_planner.show_statistics()
 
-
-plt.show()
 
 plt.show()
