@@ -1,7 +1,7 @@
 from   matplotlib import pyplot as plt
 import numpy as np
 
-from stl_tool.stl                     import GOp, FOp, TasksOptimizer, BoxBound, ContinuousLinearSystem, ISSDeputy,SingleIntegrator3d
+from stl_tool.stl                     import GOp, FOp, TasksOptimizer, BoxBound, ContinuousLinearSystem, ISSDeputy,SingleIntegrator3d, IcosahedronPredicate
 from stl_tool.environment             import Map,ISSModel
 from stl_tool.polytope                import Box2d,Box3d,Icosahedron
 
@@ -12,12 +12,12 @@ from copy import copy
 ##########################################################
 # Create work space and mapo
 ##########################################################
-workspace     = Box3d(x = 0,y = 0, z= 0, size = 2*200) 
+
+workspace     = Box3d(x = 0,y = 0, z= 0, size = 2*150) 
 map           = Map(workspace = workspace)
 
 # create obstacles 
 map.add_obstacle(Icosahedron(radius=75,x = 0,y=0,z=0))
-
 
 iss = ISSModel()
 fig,ax = iss.plot(elev=30, azim=45)
@@ -27,7 +27,7 @@ map.draw(ax) # draw if you want :)
 # system and dynamics
 ##########################################################
 system        = SingleIntegrator3d(dt = 2.) # Example: r0 = 7000 km
-max_input     = 4.
+max_input     = 15.
 input_bounds  = Box3d(x = 0.,y = 0.,z=0.,size = max_input*2) 
 
 
@@ -35,20 +35,20 @@ input_bounds  = Box3d(x = 0.,y = 0.,z=0.,size = max_input*2)
 # STL specifications
 ##########################################################
 interest_point_1_center  = np.array([-100., 100., 0.])
-box_predicate_1          =  BoxBound(dims = [0,1,2], size = 70, center = interest_point_1_center)
-visit_time1               = 100.
+box_predicate_1          =  IcosahedronPredicate(radius = 70, x= interest_point_1_center[0], y = interest_point_1_center[1], z = interest_point_1_center[2])
+visit_time1               = 150.
 
 interest_point_2_center  = np.array([-100., -100., 0.])
-box_predicate_2          =  BoxBound(dims = [0,1,2], size = 70, center = interest_point_2_center)
+box_predicate_2          =  IcosahedronPredicate(radius = 70, x= interest_point_2_center[0], y = interest_point_2_center[1], z = interest_point_2_center[2])
 visit_time2               = 250.
 
 interest_point_4_center  = np.array([0., 0., 100.])
-box_predicate_4          =  BoxBound(dims = [0,1,2], size = 70, center = interest_point_4_center)
-visit_time4               = 380.
+box_predicate_4          =  IcosahedronPredicate(radius = 70, x= interest_point_4_center[0], y = interest_point_4_center[1], z = interest_point_4_center[2])
+visit_time4              = 380.
 
 interest_point_3_center  = np.array([100., 100., 0.])
-box_predicate_3          =  BoxBound(dims = [0,1,2], size = 70, center = interest_point_3_center)
-visit_time3               = 480.
+box_predicate_3          = IcosahedronPredicate(radius = 70, x= interest_point_3_center[0], y = interest_point_3_center[1], z = interest_point_3_center[2])
+visit_time3              = 480.
 
 visit_period             = 40
 
@@ -83,16 +83,17 @@ time_varying_constraints = scheduler.get_barrier_as_time_varying_polytopes()
 # scheduler.show_time_varying_level_set()
 
 
-# rrt_planner        = RRT(start_state    = x_0,
-#                         system           = system,
-#                         prediction_steps = 3,
-#                         stl_constraints  = time_varying_constraints ,
-#                         map              = map,
-#                         max_input        = max_input,
-#                         max_task_time    = formula.max_horizon(),
-#                         max_iter         = 5000,
-#                         bias_future_time = False,
-#                         space_step_size  = 5,)
+
+rrt_planner        = RRT(start_state     = x_0,
+                        system           = system,
+                        prediction_steps = 5,
+                        stl_constraints  = time_varying_constraints ,
+                        map              = map,
+                        max_input        = max_input,
+                        max_task_time    = formula.max_horizon(),
+                        max_iter         = 5000,
+                        bias_future_time = False,
+                        space_step_size  = 10,)
 
 
 
@@ -100,9 +101,8 @@ time_varying_constraints = scheduler.get_barrier_as_time_varying_polytopes()
 # fig,ax = rrt_planner.plot_rrt_solution(ax = ax)
 
 
-
-# ax.scatter(x_0[0], x_0[1], color='r', label='start', s=100)
-# plt.title("Box Predicate")
+ax.scatter(x_0[0], x_0[1], color='r', label='start', s=100)
+plt.title("Box Predicate")
 
 
 plt.show()
