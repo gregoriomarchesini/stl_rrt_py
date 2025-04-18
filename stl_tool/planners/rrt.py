@@ -493,6 +493,7 @@ class RRTStar(RRT):
                                 solver  = "MOSEK",
                                 slack_penalty= "LINEAR")
 
+
         # Add input magnitude constraint (elevator angle limited to ±15°)
         mpc_params.add_input_magnitude_constraint(limit = self.max_input_bound, is_hard=True)
         mpc_params.add_general_state_constraints(Hx = self.map.workspace.A, bx = self.map.workspace.b,is_hard=True)
