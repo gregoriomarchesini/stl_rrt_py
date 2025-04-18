@@ -195,18 +195,6 @@ class BarrierFunction :
         self._c_high_order = c_high
 
 
-def solve_with_k(k_val, constraints, cost, k_gain):
-    # Rebuild the problem each time for true parallelism
-    problem = cp.Problem(cp.Minimize(cost), constraints)
-    k_gain.value = k_val
-    try:
-        problem.solve(warm_start=True)
-        if problem.status == cp.OPTIMAL:
-            return k_val
-    except:
-        pass
-    return None
-
 
 class TasksOptimizer:
     
@@ -268,7 +256,7 @@ class TasksOptimizer:
             time_interval : TimeInterval       = root.interval
             dims          : list[int]          = predicate_node.dims
             polytope      : Polytope           = predicate_node.polytope
-
+            
             try : 
                 C   = self.system.output_matrix_from_dimension(dims) 
             except Exception as e:
@@ -328,7 +316,7 @@ class TasksOptimizer:
                 
                 # add tasks to the list for plotting
                 start_time = time_interval.a
-                duration   =  (time_interval.b - start_time) + 0.1 # just for plotting added a o.1 to make singleton intervals visible
+                duration   =  (time_interval.b - start_time) + 0.001 # just for plotting added a o.1 to make singleton intervals visible
                 self.task_durations.append({'start_time': start_time, 'duration': duration, 'type': varphi_type})
 
                 self._varphi_formulas += [varphi]
@@ -407,15 +395,15 @@ class TasksOptimizer:
                     barriers.append(barrier)
                     
                     # create time constraints
-                    time_constraints += [barrier.alpha_var >= tau_prev + 1        * interval_prime, 
-                                        barrier.alpha_var <= tau_prev + delta_bar* interval_prime, 
+                    time_constraints += [barrier.alpha_var >= tau_prev + delta_bar * interval_prime, 
+                                        barrier.alpha_var <= tau_prev  + 1         * interval_prime, 
                                         barrier.alpha_var == barrier.beta_var]
                     
                     tau_prev = barrier.alpha_var.value # this is the link to the previous task.
     
                     start_time = a_bar_w
                     duration   =  (b_bar_w  + a_bar_w)
-                    self.task_durations.append({'start_time': start_time, 'duration': duration, 'type': varphi_type})    
+                    self.task_durations.append({'start_time': start_time, 'duration': duration, 'type': "F"})    
                     
             else:
                 raise ValueError("At least one of the formulas set in conjunction is not within the currently allowed grammar. Please verify the predicates in the formula.")
@@ -427,12 +415,11 @@ class TasksOptimizer:
         print("Enumerating tasks")
         print("============================================================")
         
-        for varphi in self._varphi_formulas:
-            varphi_type, predicate_node = get_fomula_type_and_predicate_node(formula = varphi)
+        for task in self.task_durations:
 
-            print("Found Tasks of type: ", varphi_type)
-            print("Start time: ", start_time)
-            print("Duration: ", duration)
+            print("Found Tasks of type: ", task["type"])
+            print("Start time: ", task["start_time"])
+            print("Duration: ", task["duration"])
             print("---------------------------------------------")
 
 
@@ -721,7 +708,7 @@ class TasksOptimizer:
         A = self.system.A
         B = self.system.B
         slack         = cp.Variable(nonneg = True)
-        slack_penalty = 10000 
+        slack_penalty = 1E6 
 
         constraints  :list[cp.Constraint]  = []
 
@@ -817,20 +804,23 @@ class TasksOptimizer:
 
         # create problem and solve it
         cost = 0
+        # for barrier in self._barriers:
+        #     cost += -barrier.r_var
+
         for barrier in self._barriers:
-            cost += -barrier.r_var
+            cost += cp.sum(barrier.gamma_0_var)
             
-        cost += slack_penalty * slack
-        problem = cp.Problem(cp.Minimize(cost), constraints)
+        slack_cost = slack_penalty * slack
+        problem = cp.Problem(cp.Minimize(cost+slack_cost), constraints)
         good_k_found = False
 
 
         print("Selcting a good gain k ...")
         # when barriers have order highr than 1, the problem is no more dpp and thus it takes a lot of time to solve it.
         if order >= 1:
-            k_vals = np.arange(0.01, 0.06, 0.05)
+            k_vals = np.arange(0.01, 0.5, 0.03)
         else :
-            k_vals = np.arange(0.01, 0.06, 0.05)
+            k_vals = np.arange(0.01, 0.5, 0.03)
         
         best_k    = k_vals[0]
         best_slak = 1E10
@@ -853,7 +843,7 @@ class TasksOptimizer:
 
         if not good_k_found:
             print("No good k found. Please increase the range of k. Returing k with minimum violation")
-            k_gain.value = k_val
+            k_gain.value = best_k
             problem.solve(warm_start=True, verbose=False,solver="MOSEK")
 
 
@@ -862,9 +852,9 @@ class TasksOptimizer:
         print("===========================================================")
         print("Barrier functions optimization result")
         print("===========================================================")
-        print("Status        : ", problem.status)
-        print("Optimal value : ", np.sum([-barrier.r_var.value for barrier in self._barriers]))
-        print("Maximum Slack violation : ", slack.value)
+        print("Status                         : ", problem.status)
+        print("Optimal Cost (expluding slack) :", cost.value)
+        print("Maximum Slack violation        : ", slack.value)
         print("-----------------------------------------------------------")
         print("Listing parameters per task")
 
@@ -901,12 +891,15 @@ class TasksOptimizer:
             # convert from the form Hx + c >= 0 to Hx <= b
             H1 = -H1
             H2 = -H2
-
-            self._time_varying_polytope_constraints += [TimeVaryingConstraint(start_time=0., end_time=alpha, H=H1, b=b1), TimeVaryingConstraint(start_time=alpha, end_time=beta, H=H2, b=b2)]
             
-             
+            if np.abs((beta-alpha))<= 1E-5:
+                self._time_varying_polytope_constraints += [TimeVaryingConstraint(start_time=0., end_time=alpha, H=H1, b=b1)] # the second part of the constraint it is just flat so we can remove it.
+            else:
+                self._time_varying_polytope_constraints += [TimeVaryingConstraint(start_time=0., end_time=alpha, H=H1, b=b1), TimeVaryingConstraint(start_time=alpha, end_time=beta, H=H2, b=b2)]
+            
+
         return problem.solver_stats
-    
+
     
 
     def show_time_varying_level_set(self) :
@@ -957,8 +950,16 @@ class TasksOptimizer:
         for constraint in self._time_varying_polytope_constraints:
             constraint.to_file(filename)
  
-            
+    def get_list_of_beta_polytopes_pairs(self) -> list[tuple[float,Polytope]]:
+        # saving constraints as time_state constraints
+        
+        polytope_sequence = []
+        for barrier in self._barriers:
+            polytope_sequence += [(barrier.beta,barrier.polytope)]
 
+        return polytope_sequence
+
+            
 
 class TimeVaryingConstraint:
     def __init__(self, start_time: float, end_time:float, H :np.ndarray, b:np.ndarray):

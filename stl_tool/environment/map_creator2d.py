@@ -190,5 +190,5 @@ class MapEditor2D:
 
 if __name__ == "__main__":
     
-    editor = MapEditor2D()
+    editor = MapEditor2D(bounds=(-10,10,-10,10))
     boxes = editor.run()
