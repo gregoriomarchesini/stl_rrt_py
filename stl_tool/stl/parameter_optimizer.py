@@ -818,7 +818,6 @@ class TasksOptimizer:
         print("Selcting a good gain k ...")
         # when barriers have order highr than 1, the problem is no more dpp and thus it takes a lot of time to solve it.
         if order >= 1:
-
             k_vals = np.arange(0.01, 0.5, 0.03)
         else :
             k_vals = np.arange(0.01, 0.5, 0.03)
