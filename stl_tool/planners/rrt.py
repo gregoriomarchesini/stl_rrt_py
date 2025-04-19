@@ -650,4 +650,4 @@ class StlRRTStar :
             for obstacle in self.map.obstacles:
                 if x in obstacle:
                     return True
-        return False
+        return
