@@ -4,6 +4,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from   typing          import TypedDict
 from   tqdm            import tqdm
+from matplotlib.collections import LineCollection
+from mpl_toolkits.mplot3d.art3d import Line3DCollection
 from   scipy.spatial   import KDTree
 from scipy.interpolate import BSpline
 
@@ -43,6 +45,8 @@ class BiasedSampler:
         
         t_tilde  = np.random.uniform(0, max_time) 
         random_index = np.argmin(np.abs(np.array(self.list_of_times) - t_tilde)) # find the index of the closest time
+        
+        t_tilde  = self.list_of_times[random_index]
         polytope :Polytope = self.list_of_polytopes[random_index]
         x_tilde  :np.ndarray  = polytope.sample_random()
 
@@ -64,15 +68,13 @@ class StlRRTStar :
                        stl_constraints  : list[TimeVaryingConstraint],
                        max_input        : float,
                        map              : Map,
-                       max_task_time    : float,
                        max_iter         : int   = 100000, 
                        space_step_size  : float = 0.3, 
                        time_step_size   : float = 0.1,
-                       bias_future_time : bool = True,
-                       verbose          : bool = False ,
+                       bias_future_time : bool  = True,
+                       verbose          : bool  = False ,
                        rewiring_radius  : float = -1,
-                       rewiring_ratio   : int   = 2,
-                       sampler          : BiasedSampler = None) -> None :
+                       rewiring_ratio   : int   = 2) -> None :
         
         
         start_state            = np.array(start_state).flatten()
@@ -108,7 +110,7 @@ class StlRRTStar :
         
         
         self.expand_mpc        = self._get_mpc_controller_for_expansion() # MPC controller for the RRT expansion
-        self.max_task_time     = max_task_time
+        self.max_task_time     = max(stl_constraints, key=lambda x: x.end_time).end_time
         self.kd_tree_past      = KDTree([self.start_node]) 
         self.bias_future_time  = bias_future_time
         
@@ -125,10 +127,10 @@ class StlRRTStar :
         self.iteration         = 0
         self.verbose           = verbose
 
-        self.time_sequence           = np.linspace(0.,max_task_time*1.5,10)
+        self.time_sequence           = np.linspace(0., self.max_task_time*1.5,10)
         self.current_time_bias_index = 0
 
-        self.biased_sampler   = sampler
+        self.biased_sampler   = None
         self.unbiased_sampler = UnbiasedSampler(self.map.workspace)
         
 
@@ -192,6 +194,20 @@ class StlRRTStar :
         # Create the MPC object
         mpc = TimedMPC(mpc_params)
 
+        # create biased sampler by looking at the polytope defined by each constraint at the final time of satisfaction.
+        polytope_times_pairs = []
+        for tvc in rrt_constraints:
+            # constraint is H[x,t] <= b which at time final_time becomes H[x] <= b - h*final_time 
+            H = tvc.H[:,:-1]
+            h = tvc.H[:,-1]
+            b = tvc.b
+            final_time = tvc.end
+            polytope = Polytope(H, b-h*final_time)
+            polytope_times_pairs.append((polytope, final_time))
+
+        self.sampler = BiasedSampler(list_of_polytopes = [polytope for polytope, time in polytope_times_pairs],
+                                        list_of_times     = [time for polytope, time in polytope_times_pairs])
+           
         return mpc
     
     def _get_mpc_controller_for_rewiring(self,steps = 1) -> TimedMPC:
@@ -202,7 +218,7 @@ class StlRRTStar :
         print("Initializing MPC controller for tree rewiring...")
         # Define MPC parameters
         Q = np.eye(self.system.size_state) * 10  # State penalty matrix
-        R = np.eye(self.system.size_input) * 1   # Input penalty matrix
+        R = np.eye(self.system.size_input) * 100   # Input penalty matrix
 
         # Create MPC parameters object
         mpc_params = MPCProblem(system  = self.system, 
@@ -258,7 +274,7 @@ class StlRRTStar :
             return random_node
         else:
             # sample from the bias sampler
-            value = random.choice([True, False])
+            value = random.choice([True, False], p=[0.90, 0.10])
             if value:
                 random_node = self.biased_sampler.get_sample(max_time = self.max_task_time*1.5)
             else:
@@ -369,9 +385,6 @@ class StlRRTStar :
             is_in_collision  = self.is_trajectory_in_collision(x_trj)
             actual_new_cost += np.sum(np.linalg.norm(np.diff(x_trj,axis=1),axis=0))   
 
-            print("actual state :",neighbour_state)
-            print("predicted :",x_trj[:,-1])
-
 
             if (not is_in_collision) and (actual_new_cost < self.cost[candidate_index]):
                 
@@ -448,7 +461,7 @@ class StlRRTStar :
         
         if len(self.solutions) :
             best_solution : RRTSolution = min(self.solutions, key=lambda x: x["cost"])
-            # best_smoothen : RRTSolution = self.smoothen_solution(best_solution, smoothing_window = 2)
+            # best_smoothen : RRTSolution = self.smoothen_solution(best_solution, smoothing_window = 8)
             best_smoothen = best_solution
         
         else:
@@ -512,33 +525,49 @@ class StlRRTStar :
                 
                 # annotate the time at final point 
                 # ax.annotate(f"t: {time[-1]:.2f}", (x[-1] +0.3 , y[-1]), textcoords="offset points", xytext=(0,10), ha='center')
-           
             # find best trajectory in terms of cost
+
         if len(self.solutions) :
+            # === Step 1: Concatenate the whole trajectory === #
+            all_trj = []
 
-            for jj,trj in enumerate(best_smoothen["path_trj"]) :
-                trj = C@trj
-                if len(projection_dim) == 2:
-                    x = trj[0,:]
-                    y = trj[1,:]
-                elif len(projection_dim) == 3:
-                    x = trj[0,:]
-                    y = trj[1,:]
-                    z = trj[2,:]
+            for trj in best_smoothen["path_trj"]:
+                trj = C @ trj
+                all_trj.append(trj)
 
-                if jj ==1:
-                    # plot 
-                    if len(projection_dim) == 2:
-                        ax.plot(x, y, lw=4, c = "r", label="Cost: %.5f"%solution["cost"])
-                    elif len(projection_dim) == 3:
-                        ax.plot(x, y, z, lw=4, c = "r", label="Cost: %.5f"%solution["cost"])
-                else :
-                    # plot 
-                    if len(projection_dim) == 2:
-                        ax.plot(x, y, lw=4, c = "r")
-                    elif len(projection_dim) == 3:
-                        ax.plot(x, y, z, lw=4, c = "r")
+            # Concatenate along time (axis=1)
+            full_trj   = np.concatenate(all_trj, axis=1)
+            total_time = (len(best_smoothen["path_trj"])-1)*self.delta_t
 
+            # === Step 2: Extract and plot with global time-based coloring === #
+            if len(projection_dim) == 2:
+                x = full_trj[0, :]
+                y = full_trj[1, :]
+
+                points = np.array([x, y]).T.reshape(-1, 1, 2)
+                segments = np.concatenate([points[:-1], points[1:]], axis=1)
+
+                t_values = np.linspace(0, total_time, len(x) - 1)
+
+                lc = LineCollection(segments, cmap='coolwarm', array=t_values, linewidth=4)
+                ax.add_collection(lc)
+
+            elif len(projection_dim) == 3:
+                x = full_trj[0, :]
+                y = full_trj[1, :]
+                z = full_trj[2, :]
+
+                points = np.array([x, y, z]).T.reshape(-1, 1, 3)
+                segments = np.concatenate([points[:-1], points[1:]], axis=1)
+
+                t_values = np.linspace(0, total_time, len(x) - 1)
+                
+                lc = Line3DCollection(segments, cmap='plasma', array=t_values, linewidth=4)
+                ax.add_collection3d(lc)
+
+
+            plt.colorbar(lc, ax=ax, label='Time progression')
+            
         ax.legend()
         
         return fig, ax
@@ -612,8 +641,13 @@ class StlRRTStar :
                 i +=1 
                 continue
 
+            new_cost = np.sum(np.linalg.norm(np.diff(x_trj, axis=1), axis=0))
+            # old cost
+            old_cost = sum(np.sum(np.linalg.norm(np.diff(trj, axis=1), axis=0)) for trj in trjs[i:i + max_window + 1])
+
+
             # Check collision for the entire trajectory
-            if not self.is_trajectory_in_collision(x_trj):
+            if not self.is_trajectory_in_collision(x_trj) and (new_cost <= old_cost):
                 # Update intermediate nodes
                 for k in range(1, max_window):
                     t_k      = from_node[self.TIME] + k * self.delta_t

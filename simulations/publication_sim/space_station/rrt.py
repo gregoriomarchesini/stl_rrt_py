@@ -5,7 +5,7 @@ from stl_tool.stl                     import GOp, FOp, TasksOptimizer, BoxBound,
 from stl_tool.environment             import Map,ISSModel
 from stl_tool.polytope                import Box2d,Box3d,Icosahedron
 
-from stl_tool.planners import RRTStar,RRT
+from stl_tool.planners import StlRRTStar
 from copy import copy
 
 
@@ -84,7 +84,7 @@ time_varying_constraints = scheduler.get_barrier_as_time_varying_polytopes()
 
 
 
-rrt_planner        = RRT(start_state     = x_0,
+rrt_planner  =       RRT(start_state     = x_0,
                         system           = system,
                         prediction_steps = 5,
                         stl_constraints  = time_varying_constraints ,

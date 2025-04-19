@@ -437,18 +437,22 @@ class TasksOptimizer:
         Use cvxpy to computer the distance between two polytopes inside two barrier functions"
         """
 
-        x = cp.Variable((self.system.size_state,1))
-        y = cp.Variable((self.system.size_state,1))
+        x = cp.Variable((self.system.size_state))
+        y = cp.Variable((self.system.size_state))
 
         A1,b1 = barrier_1.polytope.A, barrier_1.polytope.b
         A2,b2 = barrier_2.polytope.A, barrier_2.polytope.b
 
         constraints = [A1@x <= b1, A2@y <= b2]
-        cost = cp.norm(x-y,2)
-        problem = cp.Problem(cp.Minimize(cost), constraints)
-        problem.solve()
-
-        return cost.value
+        cost        = cp.sum_squares(x-y)
+        problem     = cp.Problem(cp.Minimize(cost), constraints)
+        
+        
+        problem.solve("SCS", verbose=True)
+        if problem.status != cp.OPTIMAL:
+            raise Exception("Problem not solved correctly. Retuned problem status is " + str(problem.status))
+        else:  
+            return cost.value
     
     
     def detect_conflicting_conjunctions_and_give_good_time_guesses(self)-> None :
@@ -462,6 +466,8 @@ class TasksOptimizer:
             if barrier.task_type == "F":
                 for always_barrier in always_barriers:
                     always_time_interval = always_barrier.interval_satisfaction
+                    
+                    
                     if time_interval in always_time_interval :
                         if self.distace_between_polytopes(barrier,always_barrier) < 1E-2: # two separate if to avoid computing the distance condition for nothing
                             message = (f"Found conflicting conjunctions: A task of type F_[a,b]\mu is conflicting with a task of type G_[a',b']\mu" +
@@ -804,11 +810,9 @@ class TasksOptimizer:
 
         # create problem and solve it
         cost = 0
-        # for barrier in self._barriers:
-        #     cost += -barrier.r_var
-
         for barrier in self._barriers:
-            cost += cp.sum(barrier.gamma_0_var)
+            cost += -barrier.r_var
+
             
         slack_cost = slack_penalty * slack
         problem = cp.Problem(cp.Minimize(cost+slack_cost), constraints)
@@ -938,7 +942,7 @@ class TasksOptimizer:
     def get_barrier_as_time_varying_polytopes(self):
         return self._time_varying_polytope_constraints
 
-    def save_polytopes(self, filename):
+    def save_polytopes(self, filename :str):
         """
         Save a list of polytopes (H, b) with intervals to a file.
         
@@ -946,12 +950,18 @@ class TasksOptimizer:
             polytopes_list: List of tuples like [(H1, b1, (min1, max1)), (H2, b2, (min2, max2)), ...]
             filename: Output file path (e.g., 'polytopes.json')
         """
-        
+        data = []
         for constraint in self._time_varying_polytope_constraints:
-            constraint.to_file(filename)
+            data.append(constraint.as_dict())
+        
+        with open(filename, 'w') as f:
+            json.dump(data, f)
  
-    def get_list_of_beta_polytopes_pairs(self) -> list[tuple[float,Polytope]]:
-        # saving constraints as time_state constraints
+    def time_predicate_pairs(self) -> list[tuple[float,Polytope]]:
+        """ 
+        Returns a list of (time,polytope) pairs specifying at which time a certan predictae (the polytope) should be reached.
+        This list is used inside the RRT algorithm for example to bias the sampling.
+        """
         
         polytope_sequence = []
         for barrier in self._barriers:
@@ -969,6 +979,20 @@ class TimeVaryingConstraint:
         self.end_time    :float       = end_time
         self.H           : np.ndarray = H
         self.b           : np.ndarray = b
+
+    def as_dict(self) -> dict:
+        """
+        Convert the time-varying constraint to a dictionary.
+        
+        Returns:
+            Dictionary representation of the time-varying constraint.
+        """
+        return {
+            'start_time': self.start_time,
+            'end_time': self.end_time,
+            'H': self.H.tolist(),
+            'b': self.b.tolist()
+        }
 
     def to_file(self, filename: str) -> None:
         """

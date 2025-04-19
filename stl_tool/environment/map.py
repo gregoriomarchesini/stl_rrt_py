@@ -1,6 +1,7 @@
 import random
 import numpy as np
 import  matplotlib.pyplot as plt
+from json import loads
 
 
 from   ..polytope import Box2d, Box3d, Polytope,selection_matrix_from_dims
@@ -25,7 +26,29 @@ class Map:
         self.ax          : plt.Axes       = None
         self.fig         : plt.Figure     = None
     
-    def add_obstacle(self, obstacle: Polytope | list[Polytope]) -> None: 
+    def _add_obstacle(self, obstacle: Polytope ) -> None: 
+
+        """
+        Adds an obstacle to the map
+        Args:
+            obstacle : Box2d or list of Box2d
+                obstacle to add
+        """
+      
+        if obstacle.num_dimensions < self.workspace.num_dimensions:
+            print("obstacle and workspace must have the same number of dimensions. Obstacles dimensional inflating")
+            # inflate the obstacle to the workspace dimension
+            obstacle : Polytope = obstacle.get_inflated_polytope_to_dimension(self.workspace.num_dimensions)
+            self.obstacles.append(obstacle)
+        
+        elif obstacle.num_dimensions == self.workspace.num_dimensions:
+            self.obstacles.append(obstacle)
+        
+        else: 
+            raise ValueError("Obstacle must be a Polytope dimension lower or equal to the workspace dimension. Given : {}".format(obstacle.num_dimensions))
+               
+    
+    def add_obstacle(self, obstacle: Polytope |list[Polytope] ) -> None:
 
         """
         Adds an obstacle to the map
@@ -34,26 +57,16 @@ class Map:
                 obstacle to add
         """
         if isinstance(obstacle, Polytope):
-            if obstacle.num_dimensions != self.workspace.num_dimensions:
-                print("obstacle and workspace must have the same number of dimensions. Obstacles dimensional inflating")
-                # inflate the obstacle to the workspace dimension
-                obstacle : Polytope = obstacle.get_inflated_polytope_to_dimension(self.workspace.num_dimensions)
-            
-            self.obstacles.append(obstacle)
-            
+            self._add_obstacle(obstacle)
         elif isinstance(obstacle, list):
             for obs in obstacle:
-                if isinstance(obs, Polytope):
-                    if obs.num_dimensions != self.workspace.num_dimensions:
-                        print("obstacle and workspace must have the same number of dimensions. Obstacles dimensional inflating")
-                        # inflate the obstacle to the workspace dimension
-                        obs : Polytope = obs.get_inflated_polytope_to_dimension(self.workspace.num_dimensions)
-                    self.obstacles.append(obs)
-                else:
-                    raise ValueError("obstacle must be a Polytope.")
+                self._add_obstacle(obs)
         else:
-            raise ValueError("obstacle must be a Box2d or list of Box2d. Given : {}".format(type(obstacle)))
-    
+            raise ValueError("obstacle must be a Polytope or list of Polytope. Given : {}".format(type(obstacle)))
+
+
+
+
 
     def draw(self, ax = None , projection_dim: list[int] = []) :
 
@@ -97,8 +110,7 @@ class Map:
         
         # draw obstacles
         for obstacle in self.obstacles:
-            # obstacle.plot(ax, color='k', alpha=0.3, projection_dims = projection_dim)
-            pass
+            obstacle.plot(ax, color='k', alpha=0.3, projection_dims = projection_dim)
         
         self.fig = fig
         self.ax  = ax
@@ -160,8 +172,30 @@ class Map:
         
         return self.fig,self.ax
 
+    def read_from_json(self, json_file: str):
+        """
+        Read map from json file
+        Args:
+            json_file : str
+                path to json file
+        """
+        
+        with open(json_file, "r") as f:
+            map_json = loads(f.read())
 
-
+            
+        for object in map_json:
+            if object["name"].split("_")[0] == "obstacle":
+                if "center_z" in object.keys():
+                    center = np.array([object["center_x"], object["center_y"], object["center_z"]])
+                    size   = np.array([object["size_x"], object["size_y"], object["size_z"]])
+                    self.add_obstacle(Box3d(x = center[0],y = center[1],z=center[2],size = size))
+                else:
+                    center = np.array([object["center_x"], object["center_y"]])
+                    size   = np.array([object["size_x"], object["size_y"]])
+                    self.add_obstacle(Box2d(x = center[0],y = center[1],size = size))
+                
+    
 
 if __name__ == "__main__":
     # obstacles
