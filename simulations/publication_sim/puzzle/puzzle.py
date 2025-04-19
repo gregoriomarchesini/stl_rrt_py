@@ -126,8 +126,8 @@ rrt_planner    = StlRRTStar(start_state     = x_0,
                             max_task_time    = formula.max_horizon(),
                             max_iter         = 2000,
                             space_step_size  = 4,
-                            rewiring_radius  = 100,
-                            rewiring_ratio   = 1)
+                            rewiring_radius  = 25,
+                            rewiring_ratio   = 5)
 
 
 rrt_planner.plan()

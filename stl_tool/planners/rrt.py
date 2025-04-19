@@ -286,18 +286,9 @@ class StlRRTStar :
         x_trj, u_trj,to_time = self.expand_mpc.get_state_and_control_trajectory(x0 = from_state ,t0 = from_time, reference = to_state)
         
         new_node        = np.hstack((x_trj[:,-1], to_time))
-        is_in_collision = False
-        cost            = 0.
         
-        obstacles : list[Polytope] = self.map.obstacles 
-        for ii in range(x_trj.shape[1]): 
-            for obstacle in obstacles:
-                if x_trj[:,ii] in obstacle:
-                    is_in_collision = True
-                    break
-            
-            if ii >=1:
-                cost += np.linalg.norm(x_trj[:,ii] - x_trj[:,ii-1])   
+        is_in_collision = self.is_trajectory_in_collision(x_trj)
+        cost = np.sum(np.linalg.norm(np.diff(x_trj,axis=1),axis=0))   
         
             
         return new_node, x_trj, is_in_collision, cost
@@ -354,7 +345,7 @@ class StlRRTStar :
         neighbour_time   = neighbour[self.TIME]
 
         
-        # this is the iteger defining the difference in number of nodes to reach last node and to reach the neighbour. 
+        # this is the integer defining the difference in number of nodes to reach last node and to reach the neighbour. 
         # This also defines the difference in time between the two since the MPC is runned at a fixed time steo
         number_of_nodes_difference = int((neighbour_time-last_node_time)/self.delta_t) # also the number of nodes difference is always going to be greater than 1 since we only consider neighbours in the future.
 
@@ -373,20 +364,13 @@ class StlRRTStar :
             except Exception as e:
                 raise Exception(f"Error in rewiring at iteration {self.iteration}, with exception: {e}")
                 
-
-            is_in_collision  = False
             actual_new_cost  = self.cost[last_node_index]
-            neighbour_time = new_final_time
+            neighbour_time   = new_final_time
+            is_in_collision  = self.is_trajectory_in_collision(x_trj)
+            actual_new_cost += np.sum(np.linalg.norm(np.diff(x_trj,axis=1),axis=0))   
 
-
-            for ii,x in enumerate(x_trj.T): 
-                for obstacle in self.map.obstacles:
-                    if x in obstacle:
-                        is_in_collision = True
-                        break
-                
-                if ii >=1:
-                    actual_new_cost += np.linalg.norm(x_trj[:,ii] - x_trj[:,ii-1])   
+            print("actual state :",neighbour_state)
+            print("predicted :",x_trj[:,-1])
 
 
             if (not is_in_collision) and (actual_new_cost < self.cost[candidate_index]):
@@ -423,43 +407,49 @@ class StlRRTStar :
                         if self.verbose:
                             print(f"Error in rewiring at iteration {iteration}, with exception: {e}")
                         continue       
-
+        
+        self.solutions = self.get_solutions()
         return self.solutions
     
 
     def get_solutions(self):
 
         terminal_nodes_index_pairs = [(i,node) for i,node in enumerate(self.tree) if node[self.TIME] >= self.max_task_time]
-
+        
+        solutions = []
         for index_t, node_t in terminal_nodes_index_pairs:
             if self.cost[index_t] < self.current_best_cost:
-                    index     = index_t
-                    path_traj = []
-                    self.current_best_cost = self.cost[index_t]
-                    nodes     = []
-                    while index != -1:
-                        path_traj.append(self.trajectories[index])
-                        index  = self.parents[index]
-                        nodes.append(self.tree[index])
+                index     = index_t
+                path_traj = []
+                nodes     = []
+                self.current_best_cost = self.cost[index_t]
+                while index != -1:
+                    path_traj.append(self.trajectories[index])
+                    nodes.append(self.tree[index])
+                    index  = self.parents[index]
 
-                    path_solution = RRTSolution()
-                    path_solution["path_trj"]     = path_traj
-                    path_solution["cost"]         = self.cost[index_t]
-                    path_solution["iter"]         = self.iteration 
-                    path_solution["nodes"]        = nodes
+                
+                path_traj.reverse()
+                nodes.reverse()
 
-                    self.solutions.append(path_solution)
+                path_solution = RRTSolution()
+                path_solution["path_trj"]     = path_traj
+                path_solution["cost"]         = self.cost[index_t]
+                path_solution["iter"]         = self.iteration 
+                path_solution["nodes"]        = nodes
 
+                solutions.append(path_solution)
+        return solutions
          
     def plot_rrt_solution(self, solution_only:bool = False, projection_dim:list[int] = [], ax = None):
 
         # Remainder of the class remains the same (plot and animate methods)
 
         
-        self.get_solutions()
         if len(self.solutions) :
             best_solution : RRTSolution = min(self.solutions, key=lambda x: x["cost"])
-            best_smoothen : RRTSolution = self.smoothen_solution(best_solution, smoothing_window = 2)
+            # best_smoothen : RRTSolution = self.smoothen_solution(best_solution, smoothing_window = 2)
+            best_smoothen = best_solution
         
         else:
             print("RRT failed to find a solution. Showing only the achived tree")
@@ -555,9 +545,13 @@ class StlRRTStar :
     
     def show_statistics(self):
         
-
+        
         success_steer_percentage  = self.successful_steering_count / (self.successful_steering_count + self.failed_steering_count) * 100
-        success_rewire_percentage = self.successful_rewiring_count / (self.successful_rewiring_count + self.failed_rewiring_count) * 100
+        
+        if self.successful_rewiring_count + self.failed_rewiring_count == 0:
+            success_rewire_percentage = 100
+        else:
+            success_rewire_percentage = self.successful_rewiring_count / (self.successful_rewiring_count + self.failed_rewiring_count) * 100
 
         failed_steer_percentage  = 100 - success_steer_percentage
         failed_rewire_percentage = 100 - success_rewire_percentage
@@ -578,72 +572,83 @@ class StlRRTStar :
 
             ax.bar_label(p, label_type='center')
 
-        ax.set_title('Number of penguins by sex')
+        ax.set_title('RRT statistics')
         ax.legend()
     
 
-    def smoothen_solution(self,solution : RRTSolution, smoothing_window : int):
+    def smoothen_solution(self,solution : RRTSolution, smoothing_window : int = 4):
 
         smoothing_window = int(smoothing_window)
-        if not smoothing_window in self.rewire_controllers.keys():
-            smoothing_window = 2 # hard coded for now
+        N                = self.prediction_steps
+        if smoothing_window not in self.rewire_controllers:
+            raise ValueError(
+                f"Smoothing window {smoothing_window} is not in range. "
+                f"Available windows: {list(self.rewire_controllers.keys())}"
+            )
 
-        nodes               = solution["nodes"]
-        trjs                = solution["path_trj"]
+        nodes = solution["nodes"]
+        trjs = solution["path_trj"]
 
+        new_nodes   = nodes.copy()
+        new_trjs    = trjs.copy()  # Initialize empty trajectory list
+        new_trjs[0] = trjs[0]  # Keep first trajectory as is
 
-        smoothing_controller : TimedMPC = self.rewire_controllers[smoothing_window]
-        
-        new_nodes_list : list = nodes
-        new_trj_list   : list = [trjs[0]]
-        new_sol               =  RRTSolution()
-        
-        step = self.prediction_steps
+        i = 0
+        while i < len(nodes) - 1:
+            max_window = min(smoothing_window, len(nodes) -1 - i)
 
-        for node_index in range(0,len(nodes)):
+            from_node  = new_nodes[i]
+            to_node    = new_nodes[i + max_window]
+            controller = self.rewire_controllers[max_window]
                 
-            from_state = nodes[node_index][self.STATE]
-            from_time  = nodes[node_index][self.TIME]
-            to_state   = nodes[node_index + smoothing_window][self.STATE] if node_index + smoothing_window < len(nodes) else nodes[-1][self.STATE]
-            
-            try : #  Get trajectory between `from_node` and `to_node` in time `t_max`
-                x_trj, u_trj, new_final_time = smoothing_controller.get_state_and_control_trajectory(x0 = from_state ,t0 =from_time, reference = to_state)
+            try:
+                # Get trajectory that exactly connects these nodes
+                x_trj, u_trj, _ = controller.get_state_and_control_trajectory(
+                    x0=from_node[self.STATE],
+                    t0=from_node[self.TIME],
+                    reference=to_node[self.STATE]
+                )
             except Exception as e:
-                raise Exception(f"Error in rewiring at iteration {self.iteration}, with exception: {e}")
+                print(f"Smoothing failed between {i} and {i+max_window}: {e}")
+                i +=1 
+                continue
+
+            # Check collision for the entire trajectory
+            if not self.is_trajectory_in_collision(x_trj):
+                # Update intermediate nodes
+                for k in range(1, max_window):
+                    t_k      = from_node[self.TIME] + k * self.delta_t
+                    state_k  = x_trj[:,k*N]
+                    mid_trj  = x_trj[:,(k-1)*N : k*N+1]
+                    
+                    
+                    # Find the exact point in the trajectory at time t_k
+                    new_nodes[i + k] = np.hstack((state_k, t_k))
+                    new_trjs[i + k]  = mid_trj
                 
-
-            is_in_collision  = False
-
-            for ii,x in enumerate(x_trj.T): 
-                for obstacle in self.map.obstacles:
-                    if x in obstacle:
-                        is_in_collision = True
-                        break
-
-            if not is_in_collision:
-                new_nodes_list.append(nodes[node_index + smoothing_window])
-                new_trj_list.append(x_trj)
-            else:
-                for i in range(1,smoothing_window+1):
-                    new_nodes_list[node_index + i] = np.hstack((x_trj[:,i*step +1], from_time + i*self.delta_t))
-                    new_trj_list[node_index + i]   = x_trj[:,(i-1)*step+1 : i*step+1]
+            else :
+                # If collision, keep the original trajectory
+                new_trjs[i + 1:i + max_window] = trjs[i + 1:i + max_window]
+                new_nodes[i + 1:i + max_window] = nodes[i + 1:i + max_window]
             
-        # compute cost of new trajectpory
-        cost = 0
-        for i in range(len(new_trj_list)):
-            x_trj = new_trj_list[i]
-            for ii,x in enumerate(x_trj.T): 
-                for obstacle in self.map.obstacles:
-                    if x in obstacle:
-                        is_in_collision = True
-                        break
-                
-                if ii >=1:
-                   cost += np.linalg.norm(x_trj[:,ii] - x_trj[:,ii-1])   
-           
+            i +=1 
 
+            
+        # Recompute cost
+        cost = sum(
+            np.sum(np.linalg.norm(np.diff(trj, axis=1), axis=0)) for trj in new_trjs[1:]  ) # xplore first trajectory that is juts a point
+
+        new_sol = RRTSolution()
         new_sol["cost"]     = cost
         new_sol["iter"]     = self.iteration
-        new_sol["path_trj"] = new_trj_list
-        new_sol["nodes"]    = new_nodes_list
-    
+        new_sol["path_trj"] = new_trjs
+        new_sol["nodes"]    = new_nodes
+
+        return new_sol
+
+    def is_trajectory_in_collision(self, x_trj):
+        for x in x_trj.T:
+            for obstacle in self.map.obstacles:
+                if x in obstacle:
+                    return True
+        return False
