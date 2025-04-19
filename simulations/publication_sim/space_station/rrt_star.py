@@ -5,7 +5,7 @@ from stl_tool.stl                     import GOp, FOp, TasksOptimizer, BoxBound,
 from stl_tool.environment             import Map,ISSModel
 from stl_tool.polytope                import Box2d,Box3d,Icosahedron
 
-from stl_tool.planners import RRTStar,RRT
+from stl_tool.planners import StlRRTStar
 from copy import copy
 
 
@@ -27,7 +27,7 @@ map.draw(ax) # draw if you want :)
 # system and dynamics
 ##########################################################
 system        = SingleIntegrator3d(dt = 2.) # Example: r0 = 7000 km
-max_input     = 10.
+max_input     = 20.
 input_bounds  = Box3d(x = 0.,y = 0.,z=0.,size = max_input*2) 
 
 
@@ -82,22 +82,17 @@ scheduler.save_polytopes(filename= "test_polytopes")
 time_varying_constraints = scheduler.get_barrier_as_time_varying_polytopes()
 # scheduler.show_time_varying_level_set()
 
-print(time_varying_constraints[0].H)
-print(time_varying_constraints[1].H)
 
-
-
-
-rrt_planner        = RRTStar(start_state    = x_0,
-                        system           = system,
-                        prediction_steps = 3,
-                        stl_constraints  = time_varying_constraints ,
-                        map              = map,
-                        max_input        = max_input,
-                        max_task_time    = formula.max_horizon(),
-                        max_iter         = 5000,
-                        bias_future_time = False,
-                        space_step_size  = 5,)
+rrt_planner     = StlRRTStar(start_state     = x_0,
+                            system           = system,
+                            prediction_steps = 3,
+                            stl_constraints  = time_varying_constraints ,
+                            map              = map,
+                            max_input        = max_input,
+                            max_iter         = 5000,
+                            space_step_size  = 5,
+                            rewiring_radius  = 25,
+                            rewiring_ratio   = 5)
 
 
 
