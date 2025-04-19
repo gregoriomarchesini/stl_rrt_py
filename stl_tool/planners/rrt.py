@@ -545,7 +545,6 @@ class StlRRTStar :
     
     def show_statistics(self):
         
-        
         success_steer_percentage  = self.successful_steering_count / (self.successful_steering_count + self.failed_steering_count) * 100
         
         if self.successful_rewiring_count + self.failed_rewiring_count == 0:

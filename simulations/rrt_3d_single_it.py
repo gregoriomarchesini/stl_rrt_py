@@ -87,6 +87,7 @@ ax.scatter(x_0[0], x_0[1], 0, color='r', label='start')
 #                       bias_future_time = False)
 
 
+
 # rrt_planner.plan()
 # fig,ax = rrt_planner.plot_rrt_solution()
 

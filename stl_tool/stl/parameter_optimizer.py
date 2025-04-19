@@ -618,7 +618,7 @@ class TasksOptimizer:
 
 
         problem = cp.Problem(cp.Minimize(cost), self._time_constraints)
-        problem.solve(warm_start=True, verbose=False)
+        problem.solve(warm_start=True, verbose=False, solver=cp.SCS)
         print("===========================================================")
         print("Times Schedule completed")
         print("===========================================================")
