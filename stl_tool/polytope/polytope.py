@@ -528,7 +528,7 @@ class Polytope:
         
         return Polytope(block_matrix , b)
     
-    def __add__(self, other:"Polytope") -> "Polytope" :
+    def __mul__(self, other:"Polytope") -> "Polytope" :
         """
         Cartesian product of two polytopes using the '+' operator.
         
@@ -538,6 +538,35 @@ class Polytope:
         :rtype: Polytope
         """
         return self.cross(other)
+    
+    def __rmul__(self, other:"Polytope") -> "Polytope" :
+        """
+        Cartesian product of two polytopes using the '*' operator.
+        
+        :param other: Another Polytope object to combine with.
+        :type
+        :rtype: Polytope
+        """
+        return self.cross(other)
+    
+    
+    def __pow__(self, exponent):
+        """
+        Raise the polytope to a power using the '^' operator. This is equivalent to taking the Cartesian product of the polytope with itself 'exponent' times.
+        
+        :param exponent: The exponent to raise the polytope to.
+        :type exponent: int
+        :return: A new Polytope object representing the Cartesian product.
+        :rtype: Polytope
+        """
+        if not isinstance(exponent, int) or exponent < 1:
+            raise ValueError("Exponent must be a positive integer.")
+        
+        result = self
+        for _ in range(exponent - 1):
+            result = result.cross(self)
+        
+        return result
     
 
 class BoxNd(Polytope):
@@ -747,6 +776,10 @@ def selection_matrix_from_dims(n_dims :int , selected_dims : list[int]|int ) :
     """
     if isinstance(selected_dims, int):
         selected_dims = [selected_dims]
+    
+    for dim in selected_dims:
+        if dim >= n_dims or dim < 0:
+            raise IndexError(f"Dimension {dim} is not a valid selection for a state with {n_dims} dimension(s)")
 
     selection_matrix = np.zeros((len(selected_dims), n_dims))
     for i, dim in enumerate(selected_dims):

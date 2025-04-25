@@ -1,5 +1,4 @@
 
-import random
 import numpy as np
 import matplotlib.pyplot as plt
 from   typing          import TypedDict
@@ -8,6 +7,9 @@ from matplotlib.collections import LineCollection
 from mpl_toolkits.mplot3d.art3d import Line3DCollection
 from   scipy.spatial   import KDTree
 from scipy.interpolate import BSpline
+import time
+
+np.random.seed(3)
 
 from openmpc.mpc     import TimedMPC, MPCProblem
 from openmpc.models  import LinearSystem
@@ -29,6 +31,7 @@ class RRTSolution(TypedDict):
     cost         : float
     iter         : int
     nodes        : list[np.ndarray]
+    clock_time   : float
 
 
 class BiasedSampler:
@@ -74,7 +77,8 @@ class StlRRTStar :
                        bias_future_time : bool  = True,
                        verbose          : bool  = False ,
                        rewiring_radius  : float = -1,
-                       rewiring_ratio   : int   = 2) -> None :
+                       rewiring_ratio   : int   = 2,
+                       biasing_ratio    : int   = 2) -> None :
         
         
         start_state            = np.array(start_state).flatten()
@@ -107,7 +111,12 @@ class StlRRTStar :
         self.trajectories      = [start_state.flatten()[:,np.newaxis]]
         self.time_trajectories = [self.start_time]
         self.parents           = [-1]
+        self.clock_time        = [0.] # clock time at which each node was found
+        self.iteration_count   = [0]
         
+
+        self.biased_sampler   : BiasedSampler   = None
+        self.unbiased_sampler : UnbiasedSampler = UnbiasedSampler(self.map.workspace)
         
         self.expand_mpc        = self._get_mpc_controller_for_expansion() # MPC controller for the RRT expansion
         self.max_task_time     = max(stl_constraints, key=lambda x: x.end_time).end_time
@@ -129,9 +138,6 @@ class StlRRTStar :
 
         self.time_sequence           = np.linspace(0., self.max_task_time*1.5,10)
         self.current_time_bias_index = 0
-
-        self.biased_sampler   = None
-        self.unbiased_sampler = UnbiasedSampler(self.map.workspace)
         
 
         self.rewire_controllers = {i: self._get_mpc_controller_for_rewiring(steps=i) for i in range(1,10)}
@@ -153,6 +159,12 @@ class StlRRTStar :
         else :
             self.rewiring_radius = rewiring_radius
         
+        if biasing_ratio < 1:
+            biasing_ratio = 1
+            print("Biasing ratio must be greater than 1. Setting to 1.")
+        self.biasing_probability = 1/biasing_ratio
+
+        self.start_clock_time = 0.
 
     def _get_mpc_controller_for_expansion(self) -> TimedMPC:
         """
@@ -205,9 +217,9 @@ class StlRRTStar :
             polytope = Polytope(H, b-h*final_time)
             polytope_times_pairs.append((polytope, final_time))
 
-        self.sampler = BiasedSampler(list_of_polytopes = [polytope for polytope, time in polytope_times_pairs],
-                                        list_of_times     = [time for polytope, time in polytope_times_pairs])
-           
+        self.biased_sampler = BiasedSampler(list_of_polytopes = [polytope for polytope, time in polytope_times_pairs],
+                                            list_of_times     = [time for polytope, time in polytope_times_pairs])
+        
         return mpc
     
     def _get_mpc_controller_for_rewiring(self,steps = 1) -> TimedMPC:
@@ -218,7 +230,7 @@ class StlRRTStar :
         print("Initializing MPC controller for tree rewiring...")
         # Define MPC parameters
         Q = np.eye(self.system.size_state) * 10  # State penalty matrix
-        R = np.eye(self.system.size_input) * 100   # Input penalty matrix
+        R = np.eye(self.system.size_input) * 1   # Input penalty matrix
 
         # Create MPC parameters object
         mpc_params = MPCProblem(system  = self.system, 
@@ -269,19 +281,15 @@ class StlRRTStar :
     def random_node(self):
         """ Generate random node"""
         
-        if self.biased_sampler is None:
-            random_node = self.unbiased_sampler.get_sample(max_time = self.max_task_time*1.5)
-            return random_node
+        # sample from the bias sampler
+        value = np.random.choice([True, False],1, p=[self.biasing_probability, 1-self.biasing_probability])
+        if value:
+            random_node = self.biased_sampler.get_sample(max_time = self.max_task_time*1.5)
         else:
-            # sample from the bias sampler
-            value = random.choice([True, False], p=[0.90, 0.10])
-            if value:
-                random_node = self.biased_sampler.get_sample(max_time = self.max_task_time*1.5)
-            else:
-                random_node = self.unbiased_sampler.get_sample(max_time = self.max_task_time*1.5)
-            
-            self.sampled_nodes.append( random_node)  
-            return  random_node
+            random_node = self.unbiased_sampler.get_sample(max_time = self.max_task_time*1.5)
+        
+        self.sampled_nodes.append( random_node)  
+        return  random_node
     
     def single_past_nearest(self, node):
         """Find the nearest node."""
@@ -338,6 +346,10 @@ class StlRRTStar :
             self.parents.append(nearest_index)
             self.cost.append(self.cost[nearest_index] + cost)
             self.trajectories.append(traj)   
+            node_time = time.perf_counter() - self.start_clock_time
+            self.clock_time.append(node_time) 
+            self.iteration_count.append(self.iteration)
+
 
     
     def rewire(self, candidate_index : int) :
@@ -397,6 +409,8 @@ class StlRRTStar :
     
     def plan(self):
         """Run the RRT algorithm to find a path from start to goal with time constraints and barrier function."""
+        
+        self.start_clock_time = time.perf_counter()
         for iteration in tqdm(range(self.max_iter)):
             self.iteration = iteration
             try:
@@ -422,6 +436,26 @@ class StlRRTStar :
                         continue       
         
         self.solutions = self.get_solutions()
+        
+        print("=============================================")
+        print("Solution Summary:")
+        print("=============================================")
+        for solution in self.solutions:
+            print("Cost: %.5f"%solution["cost"])
+            print("Clock time: %.2f"%solution["clock_time"])
+            print("Number of nodes: %d"%len(solution["path_trj"]))
+            print("Number of iterations: %d"%solution["iter"])
+            print("----------------------------------------------")
+        
+        best_solution : RRTSolution = min(self.solutions, key=lambda x: x["cost"])
+        print("Best solution*:")
+        print("Best solution cost*: %.5f"%best_solution["cost"])
+        print("Best solution clock time*: %.2f"%best_solution["clock_time"])
+        print("Best solution number of nodes*: %d"%len(best_solution["path_trj"]))
+        print("Best solution number of iterations*: %d"%best_solution["iter"])
+        print("=============================================")
+        
+        
         return self.solutions
     
 
@@ -447,14 +481,15 @@ class StlRRTStar :
 
                 path_solution = RRTSolution()
                 path_solution["path_trj"]     = path_traj
-                path_solution["cost"]         = self.cost[index_t]
-                path_solution["iter"]         = self.iteration 
+                path_solution["cost"]         = self.cost[index_t] 
                 path_solution["nodes"]        = nodes
+                path_solution["clock_time"]   = self.clock_time[index_t]
+                path_solution["iter"]         = self.iteration_count[index_t]
 
                 solutions.append(path_solution)
         return solutions
          
-    def plot_rrt_solution(self, solution_only:bool = False, projection_dim:list[int] = [], ax = None):
+    def plot_rrt_solution(self, solution_only:bool = False, projection_dim:list[int] = [], ax = None, legend = False):
 
         # Remainder of the class remains the same (plot and animate methods)
 
@@ -496,36 +531,36 @@ class StlRRTStar :
                         y = trajectory[1,:]
                         z = trajectory[2,:]
                         ax.plot(x, y, z, "b-o", lw=1)
-
-        for solution in self.solutions:
-            for jj,trj in enumerate(solution["path_trj"]):
-                trj = C@trj
-                if len(projection_dim) == 2:
-                    x = trj[0,:]
-                    y = trj[1,:]
-                elif len(projection_dim) == 3:
-                    x = trj[0,:]
-                    y = trj[1,:]
-                    z = trj[2,:]
-                
-                if jj ==1:
-                    # plot 
+        
+        if not solution_only:
+            for solution in self.solutions:
+                for jj,trj in enumerate(solution["path_trj"]):
+                    trj = C@trj
                     if len(projection_dim) == 2:
-                        ax.plot(x, y, lw=4, c = "k", label="Cost: %.5f"%solution["cost"])
+                        x = trj[0,:]
+                        y = trj[1,:]
                     elif len(projection_dim) == 3:
-                        ax.plot(x, y, z, lw=4, c = "k", label="Cost: %.5f"%solution["cost"])
-                else :
-                    # plot 
-                    if len(projection_dim) == 2:
-                        ax.plot(x, y, lw=4, c = "k")
-                    elif len(projection_dim) == 3:
-                        ax.plot(x, y, z, lw=4, c = "k")
+                        x = trj[0,:]
+                        y = trj[1,:]
+                        z = trj[2,:]
                     
-                
-                
-                # annotate the time at final point 
-                # ax.annotate(f"t: {time[-1]:.2f}", (x[-1] +0.3 , y[-1]), textcoords="offset points", xytext=(0,10), ha='center')
-            # find best trajectory in terms of cost
+                    if jj ==1:
+                        # plot 
+                        if len(projection_dim) == 2:
+                            ax.plot(x, y, lw=4, c = "k", label="Cost: %.5f"%solution["cost"] + "Clock time: %.2f"%solution["clock_time"])
+                        elif len(projection_dim) == 3:
+                            ax.plot(x, y, z, lw=4, c = "k", label="Cost: %.5f"%solution["cost"]+ "Clock time: %.2f"%solution["clock_time"])
+                    else :
+                        # plot 
+                        if len(projection_dim) == 2:
+                            ax.plot(x, y, lw=4, c = "k")
+                        elif len(projection_dim) == 3:
+                            ax.plot(x, y, z, lw=4, c = "k")
+                        
+                    
+                    # annotate the time at final point 
+                    # ax.annotate(f"t: {time[-1]:.2f}", (x[-1] +0.3 , y[-1]), textcoords="offset points", xytext=(0,10), ha='center')
+                # find best trajectory in terms of cost
 
         if len(self.solutions) :
             # === Step 1: Concatenate the whole trajectory === #
@@ -549,7 +584,7 @@ class StlRRTStar :
 
                 t_values = np.linspace(0, total_time, len(x) - 1)
 
-                lc = LineCollection(segments, cmap='coolwarm', array=t_values, linewidth=4)
+                lc = LineCollection(segments, cmap='cool', array=t_values, linewidth=4)
                 ax.add_collection(lc)
 
             elif len(projection_dim) == 3:
@@ -562,13 +597,14 @@ class StlRRTStar :
 
                 t_values = np.linspace(0, total_time, len(x) - 1)
                 
-                lc = Line3DCollection(segments, cmap='plasma', array=t_values, linewidth=4)
+                lc = Line3DCollection(segments, cmap='cool', array=t_values, linewidth=4)
                 ax.add_collection3d(lc)
 
 
-            plt.colorbar(lc, ax=ax, label='Time progression')
-            
-        ax.legend()
+            plt.colorbar(lc, ax=ax, label='Time progression [s]')
+
+        if legend :  
+            ax.legend()
         
         return fig, ax
     
@@ -681,7 +717,7 @@ class StlRRTStar :
 
     def is_trajectory_in_collision(self, x_trj):
         for x in x_trj.T:
-            for obstacle in self.map.obstacles:
+            for obstacle in self.map.obstacles_inflated:
                 if x in obstacle:
                     return True
         return

@@ -701,23 +701,63 @@ class Predicate(Formula) :
     @property
     def polytope(self) -> Polytope:
         """
-        Get the polytope of the predicate
+        Get the polytope of the predicate node
         """
         return self.root.polytope
     @property
     def dims(self)-> list[int]:
         """
-        Get the dimensions of the predicate
+        Get the dimensions of the predicate node
         """
         return self.root.dims
     @property
     def name(self) -> str:
         """
-        Get the name of the predicate
+        Get the name of the predicate node
         """
         return self.root.name
+    
+    def __add__(self, other:"Predicate") -> "Predicate" :
+        """
+        Cartesian product of two polytopes using the '+' operator.
+        
+        :param other: Another Polytope object to combine with.
+        :type other: Polytope
+        :return: A new Polytope object representing the Cartesian product.
+        :rtype: Polytope
+        """
 
+        if not isinstance(other, Predicate):
+            raise ValueError(f"Cannot add {type(other)} to BoxBound. Only BoxBound is supported.")
+        
+        old_polytope = self.polytope
+        new_polytope = old_polytope.cross(other.polytope)
 
+        # shift dimensions of the other polytope
+        new_dims = self.dims + [d + len(self.dims) for d in other.dims]
+
+        name = f"{self.name} + {other.name}" if self.name and other.name else None
+        return Predicate(polytope=new_polytope, dims=new_dims, name=name)
+
+    def __radd__(self, other:"Predicate") -> "Predicate" :
+        """
+        Cartesian product of two polytopes using the '+' operator.
+        
+        :param other: Another Polytope object to combine with.
+        :type other: Polytope
+        :return: A new Polytope object representing the Cartesian product.
+        :rtype: Polytope
+        """
+
+        if not isinstance(other, Predicate):
+            raise ValueError(f"Cannot add {type(other)} to BoxBound. Only BoxBound is supported.")
+        
+        old_polytope = other.polytope
+        new_polytope = old_polytope.cross(self.polytope)
+        # shift dimensions of self
+        new_dims = other.dims + [d + len(other.dims) for d in self.dims]
+        name = f"{other.name} + {self.name}" if self.name and other.name else None
+        return Predicate(polytope=new_polytope, dims=new_dims, name=name)
 
 def get_fomula_type_and_predicate_node(formula : Formula ) -> tuple[str,PredicateNode] :
 

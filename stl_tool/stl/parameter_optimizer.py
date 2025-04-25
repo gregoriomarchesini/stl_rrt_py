@@ -265,7 +265,7 @@ class TasksOptimizer:
                     f"The raised exception is the following")
                 raise e
             
-
+            polytope = Polytope(A = polytope.A@C, b = polytope.b) # bring polytope to suitable dimension
             # Create barrier functions for each task
             if varphi_type == "G" :
 
@@ -301,7 +301,7 @@ class TasksOptimizer:
                 
                 ## Give initial guess to the solver
                 barrier.alpha_var.value = time_interval.a
-                barrier.beta_var.value  = time_interval.b
+                barrier.beta_var.value  = time_interval.a
 
                 # save interval uncertainity for conflicting conjunction detection
                 barrier.interval_satisfaction = time_interval
@@ -351,7 +351,7 @@ class TasksOptimizer:
                 duration   =  (time_interval.b  + time_interval_prime.b) - start_time
                 self.task_durations.append({'start_time': start_time, 'duration': duration, 'type': varphi_type})    
                 
-                # these are neeeded to detect a possible conflicting conjuntion
+                # these are needed to detect a possible conflicting conjuntion
                 barrier._a_prime = time_interval_prime.a
                 barrier._b_prime = time_interval_prime.b
 
@@ -459,6 +459,7 @@ class TasksOptimizer:
         """ This check can be expensive if you have many tasks. But it can be useful to avoid problems"""
         
         always_barriers = [barrier for barrier in self._barriers if barrier.task_type == "G"]
+
         
         for barrier in self._barriers:
             
@@ -473,11 +474,12 @@ class TasksOptimizer:
                             message = (f"Found conflicting conjunctions: A task of type F_[a,b]\mu is conflicting with a task of type G_[a',b']\mu" +
                                     "The time interval of the eventually is fully contained the the time interval of the always and the predicates have no intersection")
                             raise Exception(message)
-                    else : # give good initial guess for the eventually to have both alpha and beta outside the always interval (on the right)
                         
-                        epsilon = 1E-3
-                        barrier.alpha_var.value =  always_time_interval.b + epsilon
-                        barrier.beta_var.value  =  always_time_interval.b + epsilon
+                        else : # give good initial guess for the eventually to have both alpha and beta outside the always interval (on the right)
+                            
+                            epsilon = 1E-3
+                            barrier.alpha_var.value =  always_time_interval.b + epsilon
+                            barrier.beta_var.value  =  always_time_interval.b + epsilon
 
             elif barrier.task_type == "G":
                 for always_barrier in always_barriers:
@@ -495,22 +497,21 @@ class TasksOptimizer:
                 b_prime = barrier._b_prime
 
                 for always_barrier in always_barriers:
-                        always_time_interval = always_barrier.interval_satisfaction
+                    always_time_interval = always_barrier.interval_satisfaction
 
-                        task_always_starts_in_the_always = (a_prime+time_interval) / always_time_interval is not None
-                        task_always_ends_in_the_always   = (b_prime+time_interval) / always_time_interval is not None
-                        
-                        if task_always_starts_in_the_always or task_always_ends_in_the_always:
-                            if self.distace_between_polytopes(barrier,always_barrier) < 1E-2: # two separate if to avoid computing the distance condition for nothing
-                                message = (f"Found conflicting conjunctions: A task of type F_[a,b]G_[a',b']\mu is conflicting with a task of type G_[a_bar,b_bar]\mu" +
-                                           "The time interval of the FG formula is such that the task either always starts in the interval of the always or it always ends in the interval of the always but the two do not have an intersecing predicate")
-                                raise Exception(message)
-                        else : # give good initial guess for the eventually to have both alpha and beta outside the always interval (on the right)
-                            
-                            epsilon = 1E-3
-                            barrier.alpha_var.value =  always_time_interval.b + a_prime
-                            barrier.beta_var.value  =  barrier.alpha_var.value + (b_prime - a_prime)
-
+                    task_always_starts_in_the_always = (a_prime+time_interval) / always_time_interval is not None
+                    task_always_ends_in_the_always   = (b_prime+time_interval) / always_time_interval is not None
+                    
+                    if task_always_starts_in_the_always or task_always_ends_in_the_always:
+                        if self.distace_between_polytopes(barrier,always_barrier) < 1E-2: # two separate if to avoid computing the distance condition for nothing
+                            message = (f"Found conflicting conjunctions: A task of type F_[a,b]G_[a',b']\mu is conflicting with a task of type G_[a_bar,b_bar]\mu" +
+                                        "The time interval of the FG formula is such that the task either always starts in the interval of the always or it always ends in the interval of the always but the two do not have an intersecing predicate")
+                            raise Exception(message)
+                    else : # give good initial guess for the eventually to have both alpha and beta outside the always interval (on the right)
+                        print("here")
+                        barrier.alpha_var.value =  always_time_interval.b + a_prime
+                        barrier.beta_var.value  =  barrier.alpha_var.value + (b_prime - a_prime)
+        
 
     
     def _make_high_order_corrections(self, system : ContinuousLinearSystem, k_gain : cp.Parameter) -> int:
@@ -594,34 +595,17 @@ class TasksOptimizer:
         # create optimization problem 
 
         cost = 0
-        normalizer = 50.
+        normalizer = 1000.
         lift_up_factor = 10.
         for barrier_i in self._barriers:
-            for barrier_j in self._barriers :
-                if barrier_i != barrier_j and barrier_i.task_type != "G":
-
+            for barrier_j in self._barriers:
+                
+                if barrier_i != barrier_j:
                     # give cost based on the guessed ordering of the tasks: we want to maximazie distance between each point.
                     # In order to do so we
                     if barrier_i.alpha_var.value >= barrier_j.alpha_var.value :
                         cost += lift_up_factor*cp.exp(-(barrier_i.alpha_var - barrier_j.alpha_var)/normalizer)
-                    else:
-                        cost += lift_up_factor*cp.exp(-(barrier_j.alpha_var - barrier_i.alpha_var)/normalizer)
                     
-                    if barrier_i.beta_var.value >= barrier_j.alpha_var.value :
-                        cost += lift_up_factor*cp.exp(-(barrier_i.beta_var - barrier_j.alpha_var)/normalizer)
-                    else:
-                        cost += lift_up_factor*cp.exp(-(barrier_j.alpha_var - barrier_i.beta_var)/normalizer)
-
-                    if barrier_i.alpha_var.value >= barrier_j.beta_var.value :
-                        cost += lift_up_factor*cp.exp(-(barrier_i.alpha_var - barrier_j.beta_var)/normalizer)
-                    else:
-                        cost += lift_up_factor*cp.exp(-(barrier_j.beta_var - barrier_i.alpha_var)/normalizer)
-
-                    if barrier_i.beta_var.value >= barrier_j.beta_var.value :
-                        cost += lift_up_factor*cp.exp(-(barrier_i.beta_var - barrier_j.beta_var)/normalizer)
-                    else:
-                        cost += lift_up_factor*cp.exp(-(barrier_j.beta_var - barrier_i.beta_var)/normalizer)
-
 
         problem = cp.Problem(cp.Minimize(cost), self._time_constraints)
         problem.solve(warm_start=True, verbose=False, solver=cp.SCS)
@@ -684,7 +668,7 @@ class TasksOptimizer:
         plt.tight_layout()
 
     
-    def optimize_barriers(self, input_bounds: Polytope , x_0 : np.ndarray) :
+    def optimize_barriers(self, input_bounds: Polytope , x_0 : np.ndarray, minimize_robustness = True) :
         
         
         if input_bounds.is_open:
@@ -794,7 +778,7 @@ class TasksOptimizer:
         # set the zeta at beta=0 zero and conclude
         # initial state constraint
         zeta_0  = zeta_vars[:,0]
-        epsilon = 1E-1 # just to be strictly inside
+        epsilon = 3E-1 # just to be strictly inside
         for barrier in self._barriers:
             # at time beta=0 all tasks are active and they are in the first linear section of gamma
             e = barrier.e1_var
@@ -810,8 +794,12 @@ class TasksOptimizer:
 
         # create problem and solve it
         cost = 0
-        for barrier in self._barriers:
-            cost += -barrier.r_var
+        if minimize_robustness:
+            for barrier in self._barriers:
+                cost += -barrier.r_var
+        else:
+            for barrier in self._barriers:
+                cost += -cp.sum(barrier.gamma_0_var)
 
             
         slack_cost = slack_penalty * slack
@@ -837,10 +825,15 @@ class TasksOptimizer:
                 best_k = k_val
                 good_k_found = True
                 break
-            else:
+
+            elif problem.status == cp.OPTIMAL and slack.value > 1E-5:
                 if slack.value <= best_slak :
                     best_slak = slack.value
                     best_k    = k_val 
+            else :
+                print("Problem status is infeasible. Solver status is ", problem.status)
+                continue
+    
             print("-----------------------------------------------------------")
             print("K value : ", k_val)
             print("Slack value : ", slack.value)
@@ -850,14 +843,13 @@ class TasksOptimizer:
             k_gain.value = best_k
             problem.solve(warm_start=True, verbose=False,solver="MOSEK")
 
-
-
-
         print("===========================================================")
         print("Barrier functions optimization result")
         print("===========================================================")
         print("Status                         : ", problem.status)
-        print("Optimal Cost (expluding slack) :", cost.value)
+        print("Solver time                    : ", problem.solver_stats.solve_time)
+        print("number of variables            : ", sum(var.size for var in problem.variables()))
+        print("Optimal Cost (expluding slack) :" , cost.value)
         print("Maximum Slack violation        : ", slack.value)
         print("-----------------------------------------------------------")
         print("Listing parameters per task")
@@ -906,13 +898,18 @@ class TasksOptimizer:
 
     
 
-    def show_time_varying_level_set(self) :
+    def show_time_varying_level_set(self, ax = None,t_start :float = 0., t_end :float = 1., n_points :int = 10) :
         
-        fig = plt.figure()
-        ax = fig.add_subplot(111, projection='3d')  # Transforms into 3D
-
-        self._workspace.plot(ax, alpha=0.01)
-        for t in np.linspace(0., self.formula.max_horizon(), 30):
+        if ax is None:
+            fig, ax = plt.subplots(figsize=(10, 4))
+            self._workspace.plot(ax, alpha=0.01) # plot transparent workspace to set the right figure size
+        
+        # for now only 2d workspaces can be plotted. Extensions will come soon.
+        if self._workspace.num_dimensions != 2:
+            raise ValueError("The workspace must be in 2D. The current implementation only supports 2D plotting.")
+        
+        color = np.random.rand(3,)
+        for t in np.linspace(t_start, t_end, n_points):
             
             polytopes = []
             for constrain in self._time_varying_polytope_constraints:
@@ -924,16 +921,13 @@ class TasksOptimizer:
                     polytope = Polytope(H, b - e*t)
                     polytopes.append(polytope)
 
-             
             # create intersections
             if len(polytopes) > 0:
                 intersection : Polytope = polytopes[0]
                 for i in range(1, len(polytopes)):
                     intersection = intersection.intersect(polytopes[i])
                 
-                intersection.plot(ax,alpha=0.1)
-                # ax.set_title(f"Time-varying level set at t={t:.2f}")
-        
+                intersection.plot(ax,alpha=0.1, color = color)
 
             
 

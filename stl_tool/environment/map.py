@@ -21,10 +21,12 @@ class Map:
                 each tuple represents the min and max along each dimension
         """
 
-        self.workspace   : Polytope       = workspace
-        self.obstacles   : list[Polytope] = []
-        self.ax          : plt.Axes       = None
-        self.fig         : plt.Figure     = None
+        self.workspace   : Polytope              = workspace
+        self.obstacles   : list[Polytope]        = []
+        self.obstacles_inflated : list[Polytope] = []
+        self.ax          : plt.Axes              = None
+        self.fig         : plt.Figure            = None
+
     
     def _add_obstacle(self, obstacle: Polytope ) -> None: 
 
@@ -40,9 +42,11 @@ class Map:
             # inflate the obstacle to the workspace dimension
             obstacle : Polytope = obstacle.get_inflated_polytope_to_dimension(self.workspace.num_dimensions)
             self.obstacles.append(obstacle)
+            self.obstacles_inflated.append(obstacle)
         
         elif obstacle.num_dimensions == self.workspace.num_dimensions:
             self.obstacles.append(obstacle)
+            self.obstacles_inflated.append(obstacle)
         
         else: 
             raise ValueError("Obstacle must be a Polytope dimension lower or equal to the workspace dimension. Given : {}".format(obstacle.num_dimensions))
@@ -64,11 +68,17 @@ class Map:
         else:
             raise ValueError("obstacle must be a Polytope or list of Polytope. Given : {}".format(type(obstacle)))
 
+    def enlarge_obstacle(self,border_size:float = 0.1) -> None:
+        
+        self.obstacles_inflated = []
+        for obstacle in self.obstacles:
+            # inflate the obstacle to the workspace dimension
+            v = np.ones(obstacle.num_hyperplanes)
+            # inflate the obstacle by border_size
+            self.obstacles_inflated.append(Polytope(A = obstacle.A, b = obstacle.b + border_size*v))
 
 
-
-
-    def draw(self, ax = None , projection_dim: list[int] = []) :
+    def draw(self, ax = None , projection_dim: list[int] = [], alpha: float = 1.) :
 
         if len(projection_dim) == 0:  
             # just project the first available dimensions 
@@ -110,14 +120,14 @@ class Map:
         
         # draw obstacles
         for obstacle in self.obstacles:
-            obstacle.plot(ax, color='k', alpha=0.3, projection_dims = projection_dim)
+            obstacle.plot(ax, color='k', alpha=alpha, projection_dims = projection_dim)
         
         self.fig = fig
         self.ax  = ax
 
         return fig,ax
     
-    def draw_formula_predicate(self,formula : Formula, projection_dim: list[int] = []):
+    def draw_formula_predicate(self,formula : Formula, projection_dim: list[int] = [], alpha: float = 1.) -> tuple[plt.Figure, plt.Axes]:
 
         if len(projection_dim) == 0:  
             # just project the first available dimensions 
@@ -130,11 +140,23 @@ class Map:
         def draw_recursively(node: Node):
             if isinstance(node, PredicateNode):
                 if node.polytope.num_dimensions != self.workspace.num_dimensions :
-                    C = selection_matrix_from_dims(n_dims = self.workspace.num_dimensions, selected_dims = node.dims)
+                    try :
+                        C = selection_matrix_from_dims(n_dims = self.workspace.num_dimensions, selected_dims = node.dims)
+                    except IndexError as e:
+                        raise IndexError("There was a problem plotting the predicate. The main cause is probably due to the an inconsistenty " \
+                              "between the workspace dimension and the selected output indices of one of the predicates. For example you  created" \
+                              " a predicate over dims =[1,2] but the workspace has only dimension 2, such that dimension 2 is out of bounds. " \
+                              "The given exception is : {}".format(e))
                     polytope = Polytope(node.polytope.A@C, b = node.polytope.b) # bring polytope to suitable dimension
                 else :
                     polytope = node.polytope
-                polytope.plot(self.ax, alpha=0.3,color='b',projection_dims= projection_dim)
+                polytope.plot(self.ax, alpha=alpha,color='b',projection_dims= projection_dim)
+                # plot the name 
+                if node.name is not None and not polytope.is_open:
+                    vertices = polytope.projection(projection_dim).vertices
+                    center = np.mean(vertices, axis=0)
+                    if len(projection_dim) == 2:
+                        self.ax.text(center[0], center[1], node.name, fontsize=8)
             else:
                 for child in node.children:
                     draw_recursively(child)
@@ -142,6 +164,7 @@ class Map:
         draw_recursively(formula.root)
 
         return self.fig,self.ax
+    
             
     def show_point(self, point: np.ndarray, color = 'r', label = None):
         """

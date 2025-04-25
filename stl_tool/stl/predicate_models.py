@@ -97,6 +97,9 @@ class BoxBound(Predicate):
 
         polytope = Polytope(A, b_vec)
         super().__init__(polytope = polytope, dims = dims, name = name)
+    
+
+
 
 class BoxBound2d(BoxBound):
     """
