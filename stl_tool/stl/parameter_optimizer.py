@@ -698,7 +698,7 @@ class TasksOptimizer:
         A = self.system.A
         B = self.system.B
         slack         = cp.Variable(nonneg = True)
-        slack_penalty = 1E6 
+        slack_penalty = 1E6
 
         constraints  :list[cp.Constraint]  = []
 
@@ -787,7 +787,7 @@ class TasksOptimizer:
             c = barrier.c
             D = barrier.D
 
-            constraints += [D @ zeta_0 + c + g >= epsilon]
+            constraints += [D @ zeta_0 + e*0 + c + g >= epsilon] # constraint at time 0
         
         # initial state constraint
         constraints += [zeta_0 == x_0]
@@ -812,7 +812,7 @@ class TasksOptimizer:
         if order >= 1:
             k_vals = np.arange(0.01, 0.5, 0.03)
         else :
-            k_vals = np.arange(0.01, 0.5, 0.03)
+            k_vals = np.arange(0.01, 10, 0.03)
         
         best_k    = k_vals[0]
         best_slak = 1E10

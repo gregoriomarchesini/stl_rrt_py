@@ -49,6 +49,7 @@ system             = ContinuousLinearSystem(A_multi, B_multi, dt = dt)
 max_input          = 5.
 input_bounds       = Box2d(x = 0.,y = 0.,size = max_input*2)**3
 
+
 ##########################################################
 # STL specifications
 ##########################################################
@@ -56,25 +57,24 @@ input_bounds       = Box2d(x = 0.,y = 0.,size = max_input*2)**3
 named_map = {item["name"]: item for item in map_json}
 
 
-
 # first interest point
 intrest_point = named_map["goal1"]
-goal1 = BoxBound(dims = [0,1], size = [intrest_point["size_x"],intrest_point["size_y"]] , center = np.array([intrest_point["center_x"], intrest_point["center_y"]]), name = "goal1")
+goal1 = BoxBound(dims = [0,1], size = [intrest_point["size_x"]*3,intrest_point["size_y"]*3] , center = np.array([intrest_point["center_x"], intrest_point["center_y"]]), name = "goal1")
 # second interest point
 intrest_point = named_map["goal2"]
-goal2 = BoxBound(dims = [2,3], size = [intrest_point["size_x"],intrest_point["size_y"]] , center = np.array([intrest_point["center_x"], intrest_point["center_y"]]), name = "goal2")
+goal2 = BoxBound(dims = [2,3], size = [intrest_point["size_x"]*3,intrest_point["size_y"]*3] , center = np.array([intrest_point["center_x"], intrest_point["center_y"]]), name = "goal2")
 # third interest point
 intrest_point = named_map["goal3"]
-goal3 = BoxBound(dims = [3,4], size = [intrest_point["size_x"],intrest_point["size_y"]] , center = np.array([intrest_point["center_x"], intrest_point["center_y"]]), name = "goal3")
+goal3 = BoxBound(dims = [3,4], size = [intrest_point["size_x"]*3,intrest_point["size_y"]*3] , center = np.array([intrest_point["center_x"], intrest_point["center_y"]]), name = "goal3")
 
 
-gathering_point = BoxBound(dims =[0,1,2,3,4,5], size = 1.3, center= np.array([0., 0., 0., 0., 0., 0.]), name = "gathering_point")
+# gathering_point = BoxBound(dims =[0,1,2,3,4,5], size = 1.3, center= np.array([0., 0., 0., 0., 0., 0.]), name = "gathering_point")
 
-# formula       =  (FOp(130,140) >> goal1)  & (FOp(130,140) >> goal2) & (FOp(130,140) >> goal3) & (GOp(50,60) >> gathering_point)
-formula       =  (FOp(130,140) >> goal1)  & (FOp(130,140) >> goal2) & (FOp(130,140) >> goal3) 
+# # formula       =  (FOp(130,140) >> goal1)  & (FOp(130,140) >> goal2) & (FOp(130,140) >> goal3) & (GOp(50,60) >> gathering_point)
+formula   =  (FOp(130,140) >> goal1)  & (FOp(130,140) >> goal2) & (FOp(130,140) >> goal3) 
 
 
-# fig,ax = map.draw_formula_predicate(formula = formula, alpha =0.2, projection_dim= [0,1])
+# # fig,ax = map.draw_formula_predicate(formula = formula, alpha =0.2, projection_dim= [0,1])
 
 ##########################################################
 # From STL to Barriers
@@ -93,32 +93,32 @@ solver_stats = scheduler.optimize_barriers( input_bounds = input_bounds, x_0 = x
 polytope_file = os.path.join(os.path.dirname(__file__), "spec.json")
 scheduler.save_polytopes(filename = polytope_file)
 
-# #########################################################
-# # Create RRT solver
-# #########################################################
-# time_varying_constraints = scheduler.get_barrier_as_time_varying_polytopes()
-# # scheduler.show_time_varying_level_set(ax,t_start=0.,t_end = 9.99,n_points=20)
+#########################################################
+# Create RRT solver
+#########################################################
+time_varying_constraints = scheduler.get_barrier_as_time_varying_polytopes()
+# scheduler.show_time_varying_level_set(ax,t_start=0.,t_end = 9.99,n_points=20)
 
-# rrt_planner     = StlRRTStar(start_state     = x_0,
-#                             system           = system,
-#                             prediction_steps = 5,
-#                             stl_constraints  = time_varying_constraints ,
-#                             map              = map,
-#                             max_input        = max_input,
-#                             max_iter         = 1000,
-#                             space_step_size  = 2.8,
-#                             rewiring_radius  = 50,
-#                             rewiring_ratio   = 2,
-#                             verbose          = True,
-#                             biasing_ratio    = 1.2)
+rrt_planner     = StlRRTStar(start_state     = x_0,
+                            system           = system,
+                            prediction_steps = 5,
+                            stl_constraints  = time_varying_constraints ,
+                            map              = map,
+                            max_input        = max_input,
+                            max_iter         = 1000,
+                            space_step_size  = 2.8,
+                            rewiring_radius  = 50,
+                            rewiring_ratio   = 2,
+                            verbose          = True,
+                            biasing_ratio    = 1.2)
 
 
-# rrt_planner.plan()
+rrt_planner.plan()
 # fig,ax = rrt_planner.plot_rrt_solution(ax = ax, solution_only= True)
 
 
 # ax.scatter(x_0[0], x_0[1], color='r', label='start', s=100)
 
-# rrt_planner.show_statistics()
+rrt_planner.show_statistics()
 
 plt.show()
