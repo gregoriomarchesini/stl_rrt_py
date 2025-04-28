@@ -46,13 +46,14 @@ class BiasedSampler:
     
     def get_sample(self, max_time :float) -> np.ndarray :
         
-        t_tilde  = np.random.uniform(0, max_time) 
-        random_index = np.argmin(np.abs(np.array(self.list_of_times) - t_tilde)) # find the index of the closest time
         
-        t_tilde  = self.list_of_times[random_index]
-        polytope :Polytope = self.list_of_polytopes[random_index]
-        x_tilde  :np.ndarray  = polytope.sample_random()
 
+        # Choose randomly among them
+        random_index = np.random.choice(len(self.list_of_polytopes))
+        t_tilde  :float       = self.list_of_times[random_index]
+        polytope :Polytope    = self.list_of_polytopes[random_index]
+        x_tilde  :np.ndarray  = polytope.sample_random()
+        
         return np.hstack((x_tilde.flatten(),t_tilde)) # return the sample in the form of (x,y,t)
     
 class UnbiasedSampler:
@@ -153,6 +154,7 @@ class StlRRTStar :
         self.failed_rewiring_count      : int = 0
         self.successful_steering_count  : int = 0
         self.failed_steering_count      : int = 0
+        self.collisions_count            : int = 0
         
         if rewiring_radius == -1:
             self.rewiring_radius = 5*self.space_step_size
@@ -288,7 +290,6 @@ class StlRRTStar :
         else:
             random_node = self.unbiased_sampler.get_sample(max_time = self.max_task_time*1.5)
         
-        self.sampled_nodes.append( random_node)  
         return  random_node
     
     def single_past_nearest(self, node):
@@ -314,30 +315,29 @@ class StlRRTStar :
         is_in_collision = self.is_trajectory_in_collision(x_trj)
         cost = np.sum(np.linalg.norm(np.diff(x_trj,axis=1),axis=0))   
         
-            
         return new_node, x_trj, is_in_collision, cost
 
     
     
     def step(self):
 
-        rand_point         = self.random_node()
-        past_tree          = [ node if node[self.TIME] < rand_point[self.TIME] else node*1e6 for node in self.tree ]
+        random_node         = self.random_node()
+        past_tree          = [ node if node[self.TIME] < random_node[self.TIME] else node*1e6 for node in self.tree ]
         self.kd_tree_past  = KDTree(past_tree) # KD-tree for nearest neighbour search. Each node is a 3D point (x, y, t)
 
-        nearest_node,nearest_index  = self.single_past_nearest(rand_point)
+        nearest_node,nearest_index  = self.single_past_nearest(random_node)
 
         # Move towards the random point with limited direction
-        nearest_node_state = nearest_node[self.STATE]
-        rand_point_state   = rand_point[self.STATE]
-        direction          = rand_point_state - nearest_node_state
-        direction          = self.space_step_size * direction / np.linalg.norm(direction)
-        rand_point_state   = nearest_node_state + direction
-        rand_point         = np.hstack((rand_point_state, rand_point[self.TIME])) 
-        
+        nearest_node_state  = nearest_node[self.STATE]
+        random_node_state   = random_node[self.STATE]
+        direction           = random_node_state - nearest_node_state
+        direction           = self.space_step_size * direction / np.linalg.norm(direction)
+        random_node_state   = nearest_node_state + direction
+        random_node         = np.hstack((random_node_state, random_node[self.TIME])) 
+        self.sampled_nodes.append( random_node)  
         
         try:
-            new_node, traj, is_in_collision,cost  = self.steer(nearest_node, rand_point)
+            new_node, traj, is_in_collision,cost  = self.steer(nearest_node, random_node )
         except Exception as e:
             raise Exception(f"Error in steering at iteration {self.iteration}, with exception: {e}")
 
@@ -349,8 +349,9 @@ class StlRRTStar :
             node_time = time.perf_counter() - self.start_clock_time
             self.clock_time.append(node_time) 
             self.iteration_count.append(self.iteration)
-
-
+        else :
+            self.collisions_count += 1
+        
     
     def rewire(self, candidate_index : int) :
 
@@ -446,14 +447,16 @@ class StlRRTStar :
             print("Number of nodes: %d"%len(solution["path_trj"]))
             print("Number of iterations: %d"%solution["iter"])
             print("----------------------------------------------")
-        
-        best_solution : RRTSolution = min(self.solutions, key=lambda x: x["cost"])
-        print("Best solution*:")
-        print("Best solution cost*: %.5f"%best_solution["cost"])
-        print("Best solution clock time*: %.2f"%best_solution["clock_time"])
-        print("Best solution number of nodes*: %d"%len(best_solution["path_trj"]))
-        print("Best solution number of iterations*: %d"%best_solution["iter"])
-        print("=============================================")
+        if len(self.solutions) == 0:
+            print("No solutions found.")
+        else:
+            best_solution : RRTSolution = min(self.solutions, key=lambda x: x["cost"])
+            print("Best solution*:")
+            print("Best solution cost*: %.5f"%best_solution["cost"])
+            print("Best solution clock time*: %.2f"%best_solution["clock_time"])
+            print("Best solution number of nodes*: %d"%len(best_solution["path_trj"]))
+            print("Best solution number of iterations*: %d"%best_solution["iter"])
+            print("=============================================")
         
         
         return self.solutions
@@ -488,6 +491,17 @@ class StlRRTStar :
 
                 solutions.append(path_solution)
         return solutions
+    
+    def get_best_solution(self):
+        """
+        Get the best solution from the RRT tree.
+        """
+        if len(self.solutions) == 0:
+            print("No solutions found.")
+            return None
+        else:
+            best_solution : RRTSolution = min(self.solutions, key=lambda x: x["cost"])
+            return best_solution
          
     def plot_rrt_solution(self, solution_only:bool = False, projection_dim:list[int] = [], ax = None, legend = False):
 
@@ -611,7 +625,7 @@ class StlRRTStar :
     def show_statistics(self):
         
         success_steer_percentage  = self.successful_steering_count / (self.successful_steering_count + self.failed_steering_count) * 100
-        
+        collision_percentage      = self.collisions_count /self.max_iter * 100
         if self.successful_rewiring_count + self.failed_rewiring_count == 0:
             success_rewire_percentage = 100
         else:
@@ -637,6 +651,25 @@ class StlRRTStar :
             ax.bar_label(p, label_type='center')
 
         ax.set_title('RRT statistics')
+        ax.legend()
+
+        category = ('Collision events')
+        category_count = {
+            'collision': np.array([collision_percentage]),
+            'good'     : np.array([100-collision_percentage]),
+        }
+        width = 0.6  # the width of the bars: can also be len(x) sequence
+
+        fig, ax = plt.subplots()
+        bottom = np.zeros(2)
+
+        for outcome,count in category_count.items():
+            p = ax.bar(category, count, width, label= outcome, bottom=bottom)
+            bottom += count
+
+            ax.bar_label(p, label_type='center')
+
+        ax.set_title('Collision statistics')
         ax.legend()
     
 
@@ -720,4 +753,4 @@ class StlRRTStar :
             for obstacle in self.map.obstacles_inflated:
                 if x in obstacle:
                     return True
-        return
+        return False

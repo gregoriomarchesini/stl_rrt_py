@@ -127,7 +127,7 @@ class Map:
 
         return fig,ax
     
-    def draw_formula_predicate(self,formula : Formula, projection_dim: list[int] = [], alpha: float = 1.) -> tuple[plt.Figure, plt.Axes]:
+    def draw_formula_predicate(self,formula : Formula, projection_dim: list[int] = [], alpha: float = 1., with_label : bool = False) -> tuple[plt.Figure, plt.Axes]:
 
         if len(projection_dim) == 0:  
             # just project the first available dimensions 
@@ -137,7 +137,7 @@ class Map:
             self.fig, self.ax = self.draw(projection_dim)
 
         # look recursuvely into the tree 
-        def draw_recursively(node: Node):
+        def draw_recursively(node: Node, with_label = False):
             if isinstance(node, PredicateNode):
                 if node.polytope.num_dimensions != self.workspace.num_dimensions :
                     try :
@@ -152,7 +152,7 @@ class Map:
                     polytope = node.polytope
                 polytope.plot(self.ax, alpha=alpha,color='b',projection_dims= projection_dim)
                 # plot the name 
-                if node.name is not None and not polytope.is_open:
+                if node.name is not None and not polytope.is_open and with_label:
                     vertices = polytope.projection(projection_dim).vertices
                     center = np.mean(vertices, axis=0)
                     if len(projection_dim) == 2:

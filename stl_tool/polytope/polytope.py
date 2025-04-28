@@ -568,6 +568,20 @@ class Polytope:
         
         return result
     
+    def __matmul__(self, C : np.ndarray) -> "Polytope":
+        """
+        Matrix multiplication of the polytope with a vector or matrix (usually a selection matrix).
+        
+        :param other: A vector or matrix to multiply with.
+        :type other: numpy.ndarray
+        :return: The result of the multiplication.
+        :rtype: numpy.ndarray
+        """
+
+        A = self.A @ C
+
+        return Polytope(A, self.b)
+    
 
 class BoxNd(Polytope):
     """

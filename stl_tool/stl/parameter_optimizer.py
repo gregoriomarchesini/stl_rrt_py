@@ -831,12 +831,7 @@ class TasksOptimizer:
                     best_slak = slack.value
                     best_k    = k_val 
             else :
-                print("Problem status is infeasible. Solver status is ", problem.status)
                 continue
-    
-            print("-----------------------------------------------------------")
-            print("K value : ", k_val)
-            print("Slack value : ", slack.value)
 
         if not good_k_found:
             print("No good k found. Please increase the range of k. Returing k with minimum violation")
@@ -851,6 +846,7 @@ class TasksOptimizer:
         print("number of variables            : ", sum(var.size for var in problem.variables()))
         print("Optimal Cost (expluding slack) :" , cost.value)
         print("Maximum Slack violation        : ", slack.value)
+        print('Robustness                     : ', min(barrier.r_var.value for barrier in self._barriers))
         print("-----------------------------------------------------------")
         print("Listing parameters per task")
 

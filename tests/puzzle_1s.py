@@ -43,22 +43,10 @@ named_map = {item["name"]: item for item in map_json}
 
 # first interest point
 intrest_point = named_map["interest_2"]
-p1 = BoxBound2d(size = intrest_point["size_x"], center = np.array([intrest_point["center_x"], intrest_point["center_y"]]), name = "interest_1")
-# second interest point
-intrest_point = named_map["interest_6"]
-p2 = BoxBound2d(size = intrest_point["size_x"], center = np.array([intrest_point["center_x"], intrest_point["center_y"]]), name = "interest_2")
-# third interest point
-intrest_point = named_map["interest_3"]
-p3 = BoxBound2d(size = intrest_point["size_x"], center = np.array([intrest_point["center_x"], intrest_point["center_y"]]), name = "interest_3")
+p1 = BoxBound2d(size = 4, center = np.array([-8.,-8.]), name = "interest_1")
 
-intrest_point = named_map["interest_4"]
-p4 = BoxBound2d(size = intrest_point["size_x"], center = np.array([intrest_point["center_x"], intrest_point["center_y"]]), name = "interest_3")
 
-# charging_station 
-intrest_point = named_map["charging_station"]
-c_station     = BoxBound2d(size = intrest_point["size_x"], center = np.array([intrest_point["center_x"], intrest_point["center_y"]]), name = "charging_station")
-
-formula       =  (FOp(20,25) >> p1)  & (FOp(120,150) >> p2) & (GOp(0.01,200) >>  (FOp(0.01,100) >> c_station)) & (GOp(255,265) >> p3)
+formula       =  (FOp(20,25) >> p1) 
 
 
 fig,ax = map.draw_formula_predicate(formula = formula, alpha =0.2)
@@ -66,7 +54,7 @@ fig,ax = map.draw_formula_predicate(formula = formula, alpha =0.2)
 # # ##########################################################
 # # # From STL to Barriers
 # # ##########################################################
-x_0       = c_station.polytope.sample_random()
+x_0       = np.array([5.,8.])
 map.show_point(x_0, color = 'r', label = 'start') # show start point
 
 scheduler = TasksOptimizer(formula, workspace,system) # create task optimizer
@@ -83,26 +71,26 @@ scheduler.save_polytopes(filename = polytope_file)
 time_varying_constraints = scheduler.get_barrier_as_time_varying_polytopes()
 # scheduler.show_time_varying_level_set(ax,t_start=0.,t_end = 9.99,n_points=20)
 
-rrt_planner     = StlRRTStar(start_state     = x_0,
-                            system           = system,
-                            prediction_steps = 5,
-                            stl_constraints  = time_varying_constraints ,
-                            map              = map,
-                            max_input        = max_input,
-                            max_iter         = 500,
-                            space_step_size  = 2.8,
-                            rewiring_radius  = 25,
-                            rewiring_ratio   = 2,
-                            verbose          = True,
-                            biasing_ratio    = 1.2)
+# rrt_planner     = StlRRTStar(start_state     = x_0,
+#                             system           = system,
+#                             prediction_steps = 5,
+#                             stl_constraints  = time_varying_constraints ,
+#                             map              = map,
+#                             max_input        = max_input,
+#                             max_iter         = 1000,
+#                             space_step_size  = 2.8,
+#                             rewiring_radius  = 50,
+#                             rewiring_ratio   = 2,
+#                             verbose          = True,
+#                             biasing_ratio    = 1.2)
 
 
-rrt_planner.plan()
-fig,ax = rrt_planner.plot_rrt_solution(ax = ax, solution_only= True)
+# rrt_planner.plan()
+# fig,ax = rrt_planner.plot_rrt_solution(ax = ax, solution_only= True)
 
 
-ax.scatter(x_0[0], x_0[1], color='r', label='start', s=100)
+# ax.scatter(x_0[0], x_0[1], color='r', label='start', s=100)
 
-rrt_planner.show_statistics()
+# rrt_planner.show_statistics()
 
 plt.show()

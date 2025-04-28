@@ -44,7 +44,7 @@ intrest_point = named_map["goal2"]
 goal2 = BoxBound2d(size = [intrest_point["size_x"],intrest_point["size_y"]] , center = np.array([intrest_point["center_x"], intrest_point["center_y"]]), name = "goal2")
 # third interest point
 intrest_point = named_map["goal3"]
-goal3 = BoxBound2d(size = [intrest_point["size_x"],intrest_point["size_y"]] , center = np.array([intrest_point["center_x"], intrest_point["center_y"]]), name = "goal3")
+goal3 = BoxBound2d(size = [intrest_point["size_x"],intrest_point["size_y"]*2] , center = np.array([intrest_point["center_x"], intrest_point["center_y"]]), name = "goal3")
 
 
 # gathering_point = BoxBound(dims =[0,1,2,3,4,5], size = 1.3, center= np.array([0., 0., 0., 0., 0., 0.]), name = "gathering_point")
