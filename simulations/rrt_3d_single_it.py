@@ -3,7 +3,7 @@ import numpy as np
 
 from stl_tool.stl                     import GOp, FOp, TasksOptimizer, BoxBound, ContinuousLinearSystem
 from stl_tool.environment.map         import Map
-from stl_tool.polytope                import Box2d,Box3d
+from stl_tool.polyhedron                import Box2d,Box3d
 
 from stl_tool.planners import RRTStar
 

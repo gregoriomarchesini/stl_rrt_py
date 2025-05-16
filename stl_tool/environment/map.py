@@ -4,7 +4,7 @@ import  matplotlib.pyplot as plt
 from json import loads
 
 
-from   ..polytope import Box2d, Box3d, Polytope,selection_matrix_from_dims
+from   ..polyhedron import Box2d, Box3d, Polyhedron,selection_matrix_from_dims
 from   ..stl.logic import PredicateNode, Node
 from   ..stl.logic import Formula 
 
@@ -14,21 +14,21 @@ class Map:
     Helper class to define a simple 2d map with obstacles
     """
 
-    def __init__(self, workspace : Polytope) -> None:
+    def __init__(self, workspace : Polyhedron) -> None:
         """
         Args:
             bounds : list of tuples
                 each tuple represents the min and max along each dimension
         """
 
-        self.workspace   : Polytope              = workspace
-        self.obstacles   : list[Polytope]        = []
-        self.obstacles_inflated : list[Polytope] = []
+        self.workspace   : Polyhedron              = workspace
+        self.obstacles   : list[Polyhedron]        = []
+        self.obstacles_inflated : list[Polyhedron] = []
         self.ax          : plt.Axes              = None
         self.fig         : plt.Figure            = None
 
     
-    def _add_obstacle(self, obstacle: Polytope ) -> None: 
+    def _add_obstacle(self, obstacle: Polyhedron ) -> None: 
 
         """
         Adds an obstacle to the map
@@ -40,7 +40,7 @@ class Map:
         if obstacle.num_dimensions < self.workspace.num_dimensions:
             print("obstacle and workspace must have the same number of dimensions. Obstacles dimensional inflating")
             # inflate the obstacle to the workspace dimension
-            obstacle : Polytope = obstacle.get_inflated_polytope_to_dimension(self.workspace.num_dimensions)
+            obstacle : Polyhedron = obstacle.get_inflated_polytope_to_dimension(self.workspace.num_dimensions)
             self.obstacles.append(obstacle)
             self.obstacles_inflated.append(obstacle)
         
@@ -52,7 +52,7 @@ class Map:
             raise ValueError("Obstacle must be a Polytope dimension lower or equal to the workspace dimension. Given : {}".format(obstacle.num_dimensions))
                
     
-    def add_obstacle(self, obstacle: Polytope |list[Polytope] ) -> None:
+    def add_obstacle(self, obstacle: Polyhedron |list[Polyhedron] ) -> None:
 
         """
         Adds an obstacle to the map
@@ -60,7 +60,7 @@ class Map:
             obstacle : Box2d or list of Box2d
                 obstacle to add
         """
-        if isinstance(obstacle, Polytope):
+        if isinstance(obstacle, Polyhedron):
             self._add_obstacle(obstacle)
         elif isinstance(obstacle, list):
             for obs in obstacle:
@@ -75,7 +75,7 @@ class Map:
             # inflate the obstacle to the workspace dimension
             v = np.ones(obstacle.num_hyperplanes)
             # inflate the obstacle by border_size
-            self.obstacles_inflated.append(Polytope(A = obstacle.A, b = obstacle.b + border_size*v))
+            self.obstacles_inflated.append(Polyhedron(A = obstacle.A, b = obstacle.b + border_size*v))
 
 
     def draw(self, ax = None , projection_dim: list[int] = [], alpha: float = 1.) :
@@ -147,7 +147,7 @@ class Map:
                               "between the workspace dimension and the selected output indices of one of the predicates. For example you  created" \
                               " a predicate over dims =[1,2] but the workspace has only dimension 2, such that dimension 2 is out of bounds. " \
                               "The given exception is : {}".format(e))
-                    polytope = Polytope(node.polytope.A@C, b = node.polytope.b) # bring polytope to suitable dimension
+                    polytope = Polyhedron(node.polytope.A@C, b = node.polytope.b) # bring polytope to suitable dimension
                 else :
                     polytope = node.polytope
                 polytope.plot(self.ax, alpha=alpha,color='b',projection_dims= projection_dim)

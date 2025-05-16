@@ -9,8 +9,6 @@ from   scipy.spatial   import KDTree
 from scipy.interpolate import BSpline
 import time
 
-np.random.seed(3)
-
 from openmpc.mpc     import TimedMPC, MPCProblem
 from openmpc.models  import LinearSystem
 from openmpc.support import TimedConstraint
@@ -18,7 +16,7 @@ from openmpc.models  import LinearSystem
 
 
 from stl_tool.environment.map  import Map
-from stl_tool.polytope         import Polytope,selection_matrix_from_dims
+from stl_tool.polyhedron         import Polyhedron,selection_matrix_from_dims
 from stl_tool.stl.parameter_optimizer import TimeVaryingConstraint
 from stl_tool.stl.linear_system import ContinuousLinearSystem
 
@@ -35,10 +33,10 @@ class RRTSolution(TypedDict):
 
 
 class BiasedSampler:
-    def __init__(self, list_of_polytopes : list[Polytope], list_of_times : list[float]):
+    def __init__(self, list_of_polytopes : list[Polyhedron], list_of_times : list[float]):
         
         
-        self.list_of_polytopes :list[Polytope] = list_of_polytopes
+        self.list_of_polytopes :list[Polyhedron] = list_of_polytopes
         self.list_of_times     :list[float]    = list_of_times
 
         if len(list_of_polytopes) != len(list_of_times):
@@ -51,13 +49,13 @@ class BiasedSampler:
         # Choose randomly among them
         random_index = np.random.choice(len(self.list_of_polytopes))
         t_tilde  :float       = self.list_of_times[random_index]
-        polytope :Polytope    = self.list_of_polytopes[random_index]
+        polytope :Polyhedron    = self.list_of_polytopes[random_index]
         x_tilde  :np.ndarray  = polytope.sample_random()
         
         return np.hstack((x_tilde.flatten(),t_tilde)) # return the sample in the form of (x,y,t)
     
 class UnbiasedSampler:
-    def __init__(self,workspace : Polytope):
+    def __init__(self,workspace : Polyhedron):
         self.workspace = workspace
 
     def get_sample(self, max_time :float) -> np.ndarray :
@@ -154,7 +152,7 @@ class StlRRTStar :
         self.failed_rewiring_count      : int = 0
         self.successful_steering_count  : int = 0
         self.failed_steering_count      : int = 0
-        self.collisions_count            : int = 0
+        self.collisions_count           : int = 0
         
         if rewiring_radius == -1:
             self.rewiring_radius = 5*self.space_step_size
@@ -216,7 +214,7 @@ class StlRRTStar :
             h = tvc.H[:,-1]
             b = tvc.b
             final_time = tvc.end
-            polytope = Polytope(H, b-h*final_time)
+            polytope = Polyhedron(H, b-h*final_time)
             polytope_times_pairs.append((polytope, final_time))
 
         self.biased_sampler = BiasedSampler(list_of_polytopes = [polytope for polytope, time in polytope_times_pairs],

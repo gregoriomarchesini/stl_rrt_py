@@ -89,7 +89,11 @@ class ContinuousLinearSystem:
             except IndexError:
                 raise ValueError(f"Dimensions {dims} are out of range for the system with size {self.A.shape[0]}")
             
-
+    def __str__(self):
+            """
+            String representation of the system
+            """
+            return f"Linear System with \nA:\n{self.A}\nB:\n{self.B}\nC:\n{self.C}\ndt: {self.dt}"
 
 class SingleIntegrator3d(ContinuousLinearSystem):
     """

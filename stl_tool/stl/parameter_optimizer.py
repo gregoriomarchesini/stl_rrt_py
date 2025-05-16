@@ -22,7 +22,7 @@ from .logic         import (Formula,
 from .utils         import TimeInterval
 from .linear_system import ContinuousLinearSystem
 
-from ..polytope  import Polytope
+from ..polyhedron  import Polyhedron
 
 
 class BarrierFunction :
@@ -36,7 +36,7 @@ class BarrierFunction :
 
     The function gamma is a piexe wise linear function of the form :math:`\gamma(t) = e \cdot t + g`.
     """
-    def __init__(self, polytope: Polytope ) -> None:
+    def __init__(self, polytope: Polyhedron ) -> None:
         """
         Initialize the barrier function with a given polytope.
 
@@ -198,10 +198,10 @@ class BarrierFunction :
 
 class TasksOptimizer:
     
-    def __init__(self,formula : Formula, workspace: Polytope, system : ContinuousLinearSystem ) -> None:
+    def __init__(self,formula : Formula, workspace: Polyhedron, system : ContinuousLinearSystem ) -> None:
         
         self.formula           : Formula                 = formula
-        self._workspace        : Polytope                = workspace
+        self._workspace        : Polyhedron                = workspace
         self.system            : ContinuousLinearSystem  = system
 
         self._varphi_formulas  : list[Formula]          = [] # subformulas G,F,FG,GF
@@ -255,7 +255,7 @@ class TasksOptimizer:
             root          : Union[FOp,UOp,GOp] = varphi.root
             time_interval : TimeInterval       = root.interval
             dims          : list[int]          = predicate_node.dims
-            polytope      : Polytope           = predicate_node.polytope
+            polytope      : Polyhedron           = predicate_node.polytope
             
             try : 
                 C   = self.system.output_matrix_from_dimension(dims) 
@@ -265,7 +265,7 @@ class TasksOptimizer:
                     f"The raised exception is the following")
                 raise e
             
-            polytope = Polytope(A = polytope.A@C, b = polytope.b) # bring polytope to suitable dimension
+            polytope = Polyhedron(A = polytope.A@C, b = polytope.b) # bring polytope to suitable dimension
             # Create barrier functions for each task
             if varphi_type == "G" :
 
@@ -668,7 +668,7 @@ class TasksOptimizer:
         plt.tight_layout()
 
     
-    def optimize_barriers(self, input_bounds: Polytope , x_0 : np.ndarray, minimize_robustness = True) :
+    def optimize_barriers(self, input_bounds: Polyhedron , x_0 : np.ndarray, minimize_robustness = True) :
         
         
         if input_bounds.is_open:
@@ -914,12 +914,12 @@ class TasksOptimizer:
                     b = constrain.b
                     e = constrain.H[:,-1]
 
-                    polytope = Polytope(H, b - e*t)
+                    polytope = Polyhedron(H, b - e*t)
                     polytopes.append(polytope)
 
             # create intersections
             if len(polytopes) > 0:
-                intersection : Polytope = polytopes[0]
+                intersection : Polyhedron = polytopes[0]
                 for i in range(1, len(polytopes)):
                     intersection = intersection.intersect(polytopes[i])
                 
@@ -947,7 +947,7 @@ class TasksOptimizer:
         with open(filename, 'w') as f:
             json.dump(data, f)
  
-    def time_predicate_pairs(self) -> list[tuple[float,Polytope]]:
+    def time_predicate_pairs(self) -> list[tuple[float,Polyhedron]]:
         """ 
         Returns a list of (time,polytope) pairs specifying at which time a certan predictae (the polytope) should be reached.
         This list is used inside the RRT algorithm for example to bias the sampling.
@@ -1001,7 +1001,7 @@ class TimeVaryingConstraint:
         with open(filename, 'w') as f:
             json.dump(data, f)
     
-    def to_polytope(self) -> Polytope:
+    def to_polytope(self) -> Polyhedron:
         """
         Convert the time-varying constraint to a Polytope object.
         
@@ -1017,7 +1017,7 @@ class TimeVaryingConstraint:
         b_ext = np.hstack((self.b, self.end_time, -self.start_time))
 
         # Plot the constraint as a polygon
-        polytope = Polytope(H_ext, b_ext)
+        polytope = Polyhedron(H_ext, b_ext)
 
 
         return polytope

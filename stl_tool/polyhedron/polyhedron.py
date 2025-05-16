@@ -7,7 +7,7 @@ from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 ### This file was originally developed by Mikael Johansson and is part of the openMPC library
 ### It has been modified by the stl_tool team to fit the needs of the library
 
-class Polytope:
+class Polyhedron:
     """ 
     General Polytope class. Every polytope is represented as Conv(V) + Cone(R) where V are the vertices and R are the rays.
     The polytope is defined by the H-representation Ax-b <= 0. The vertices and rays are computed using cddlib.
@@ -343,7 +343,7 @@ class Polytope:
 
         # Create a new polytope in the projected space
         try:
-            projected_polytope = Polytope(reduced_A[:, dims], reduced_b)
+            projected_polytope = Polyhedron(reduced_A[:, dims], reduced_b)
         except IndexError as e:
             raise ValueError(f"Invalid dimensions for projection of polytope that is {self.num_dimensions}-dimensional: {dims}. Error: {e}")
         # Remove redundancies from the new polytope
@@ -365,7 +365,7 @@ class Polytope:
         combined_b = np.concatenate([self.b, other.b])
 
         # Create a new polytope representing the intersection
-        intersected_polytope = Polytope(combined_A, combined_b)
+        intersected_polytope = Polyhedron(combined_A, combined_b)
 
         # Remove redundancies from the intersection result
         intersected_polytope.remove_redundancies()
@@ -494,10 +494,10 @@ class Polytope:
             # Fill in the existing A matrix values
             new_A[:, :current_dim] = self.A
 
-        return Polytope(new_A, self.b)
+        return Polyhedron(new_A, self.b)
     
 
-    def cross(self,other : "Polytope") -> "Polytope":
+    def cross(self,other : "Polyhedron") -> "Polyhedron":
    
         """
         Cartesian product of two polytopes. Polytopes are stacked vertically such that 
@@ -526,9 +526,9 @@ class Polytope:
         # Ensure b is a 1D array
         b = b.flatten()
         
-        return Polytope(block_matrix , b)
+        return Polyhedron(block_matrix , b)
     
-    def __mul__(self, other:"Polytope") -> "Polytope" :
+    def __mul__(self, other:"Polyhedron") -> "Polyhedron" :
         """
         Cartesian product of two polytopes using the '+' operator.
         
@@ -539,7 +539,7 @@ class Polytope:
         """
         return self.cross(other)
     
-    def __rmul__(self, other:"Polytope") -> "Polytope" :
+    def __rmul__(self, other:"Polyhedron") -> "Polyhedron" :
         """
         Cartesian product of two polytopes using the '*' operator.
         
@@ -568,7 +568,7 @@ class Polytope:
         
         return result
     
-    def __matmul__(self, C : np.ndarray) -> "Polytope":
+    def __matmul__(self, C : np.ndarray) -> "Polyhedron":
         """
         Matrix multiplication of the polytope with a vector or matrix (usually a selection matrix).
         
@@ -580,10 +580,10 @@ class Polytope:
 
         A = self.A @ C
 
-        return Polytope(A, self.b)
+        return Polyhedron(A, self.b)
     
 
-class BoxNd(Polytope):
+class BoxNd(Polyhedron):
     """
     Box in nD space
     """
@@ -662,7 +662,7 @@ class Box3d(BoxNd):
         super().__init__(n_dim = 3, size = size, center = center)
 
 
-class Icosahedron(Polytope):
+class Icosahedron(Polyhedron):
 
 
     def __init__(self, radius=1.0, x=0.0, y=0.0, z=0.0):
@@ -753,7 +753,7 @@ class Icosahedron(Polytope):
 
 
 
-def cartesian_product(*polytopes: Polytope ):
+def cartesian_product(*polytopes: Polyhedron ):
     """
     Cartesian product of two polytopes. Polytopes are stacked vertically such that 
 
@@ -775,7 +775,7 @@ def cartesian_product(*polytopes: Polytope ):
     b = b.flatten()
     
 
-    return Polytope(A, b)
+    return Polyhedron(A, b)
 
 def selection_matrix_from_dims(n_dims :int , selected_dims : list[int]|int ) :
     """

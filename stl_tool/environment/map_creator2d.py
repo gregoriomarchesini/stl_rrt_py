@@ -180,7 +180,7 @@ class MapEditor2D:
         with open(filename, 'w') as f:
             json.dump(objects_list, f, indent=2)
         
-        print(f"Saved {len(objects_list)} objects to {filename}")
+        print(f"Saved {len(objects_list)} objects to {filename} at location {filename}")
 
     def run(self):
         plt.show()

@@ -1,7 +1,7 @@
 import numpy as np
 
 from .logic import Predicate
-from ..polytope import Polytope
+from ..polyhedron import Polyhedron
 
 
 
@@ -27,7 +27,7 @@ class Geq(Predicate):
         b = np.array([bound]*len(dims))
         
         # polytope is always defined as Ax<= b
-        polytope = Polytope(-A,-b)
+        polytope = Polyhedron(-A,-b)
         super().__init__(polytope = polytope, dims = dims, name = name)
         
 
@@ -53,7 +53,7 @@ class Leq(Predicate):
         b = np.array([bound]*len(dims))
         
         # polytope is always defined as Ax<= b
-        polytope = Polytope(A,b)
+        polytope = Polyhedron(A,b)
         super().__init__(polytope = polytope, dims = dims, name = name)
 
 
@@ -95,7 +95,7 @@ class BoxBound(Predicate):
         A     = np.vstack((np.eye(len(dims)), -np.eye(len(dims))))
         b_vec = b + A @ center  # Ensuring proper half-space representation
 
-        polytope = Polytope(A, b_vec)
+        polytope = Polyhedron(A, b_vec)
         super().__init__(polytope = polytope, dims = dims, name = name)
     
 
@@ -145,7 +145,7 @@ class IcosahedronPredicate(Predicate):
             raise ValueError(f"Icosahedron predicate is only defined in 3D. Given dimensions: {dims}. Soon we will try to expand to more dimensions")
         
         H,b,_,_ = self._icosahedron_h_representation(radius, center = np.array([x,y,z]))
-        pp = Polytope(H, b)
+        pp = Polyhedron(H, b)
         super().__init__(polytope = pp, dims = dims, name = name)
         
 

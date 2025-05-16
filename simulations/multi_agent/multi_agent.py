@@ -5,7 +5,7 @@ np.random.seed(3)
 
 from stl_tool.stl                     import GOp, FOp, TasksOptimizer, ContinuousLinearSystem, BoxBound2d, BoxBound
 from stl_tool.environment             import Map
-from stl_tool.polytope                import BoxNd, Box2d, selection_matrix_from_dims
+from stl_tool.polyhedron                import BoxNd, Box2d, selection_matrix_from_dims
 
 from stl_tool.planners import StlRRTStar
 from json import loads

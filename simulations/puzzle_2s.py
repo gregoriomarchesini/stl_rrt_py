@@ -3,7 +3,7 @@ import numpy as np
 
 from stl_tool.stl                     import GOp, FOp, TasksOptimizer, BoxBound, ContinuousLinearSystem, ISSDeputy,SingleIntegrator3d, IcosahedronPredicate, ContinuousLinearSystem, BoxBound2d
 from stl_tool.environment             import Map,ISSModel
-from stl_tool.polytope                import Box2d,Box3d,Icosahedron
+from stl_tool.polyhedron                import Box2d,Box3d,Icosahedron
 
 from stl_tool.planners import StlRRTStar, BiasedSampler
 from copy import copy

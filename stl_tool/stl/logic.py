@@ -5,7 +5,7 @@ from matplotlib import rcParams
 import numpy as np
 
 
-from ..polytope import Polytope
+from ..polyhedron import Polyhedron
 from .utils import TimeInterval
 
 NodeID     = int
@@ -43,7 +43,7 @@ class PredicateNode(Node):
     """
     Predicate Node of the formula tree. It stores the polytope defining the predicate and the dimensions of the state space that define such polytope.
     """
-    def __init__(self, polytope: Polytope, dims : list[int]|int, name:str | None = None) -> None:
+    def __init__(self, polytope: Polyhedron, dims : list[int]|int, name:str | None = None) -> None:
         """
         :param polytope: Polytope defining the predicate
         :type polytope: Polytope
@@ -54,7 +54,7 @@ class PredicateNode(Node):
         """
 
         self.parent               : "OperatorNode" |None    = None
-        self.polytope             : Polytope                = polytope
+        self.polytope             : Polyhedron                = polytope
 
         if isinstance(dims, int):
             dims = [dims]
@@ -665,7 +665,7 @@ class Formula:
 
     
 
-    def enumerate_predicates(self) -> dict[str,Polytope] :
+    def enumerate_predicates(self) -> dict[str,Polyhedron] :
         """
         Get the predicates of the formula
         """
@@ -686,7 +686,7 @@ class Predicate(Formula) :
     """
     Wrapper class to create a predicate formula from a polytope.
     """
-    def __init__(self, polytope: Polytope, dims:list[int]|int , name: str | None = None) -> None:
+    def __init__(self, polytope: Polyhedron, dims:list[int]|int , name: str | None = None) -> None:
         """
         
         :param polytope: Polytope defining the predicate
@@ -699,7 +699,7 @@ class Predicate(Formula) :
         super().__init__(root = PredicateNode(polytope = polytope , dims = dims , name = name))
 
     @property
-    def polytope(self) -> Polytope:
+    def polytope(self) -> Polyhedron:
         """
         Get the polytope of the predicate node
         """
