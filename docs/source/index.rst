@@ -3,12 +3,22 @@
    You can adapt this file completely to your liking, but it should at least
    contain the root `toctree` directive.
 
-stl_tool documentation
-======================
+Temporal Logic Specifications via forward invariance
+====================================================
 
-Add your content using ``reStructuredText`` syntax. See the
-`reStructuredText <https://www.sphinx-doc.org/en/master/usage/restructuredtext/index.html>`_
-documentation for details.
+
+
+.. toctree::
+   :maxdepth: 1
+   :caption: Intro:
+   
+   notebooks/simple_linear_systems.ipynb
+   notebooks/stl.ipynb
+   notebooks/maps.ipynb
+   notebooks/polytope.ipynb
+   notebooks/rrt_example.ipynb
+   planning_stl
+   examples
 
 
 .. toctree::
@@ -16,4 +26,11 @@ documentation for details.
    :caption: Contents:
 
    modules
+
+.. toctree::
+   :maxdepth: 2
+   :caption: Examples:
+
+   modules
+
 
