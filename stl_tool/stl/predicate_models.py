@@ -135,6 +135,44 @@ class BoxBound3d(BoxBound):
         super().__init__(dims=[0, 1, 2], size=size, center=center, name=name)
 
 
+
+class RegularPolygonPredicate2D(Predicate):
+    """
+    Represents a regular polygon in 2D defined by number of sides, size, and center.
+    """
+
+    def __init__(self, n_sides: int, size: float, center: np.ndarray = None, name: str | None = None):
+        """
+        :param n_sides: Number of sides of the regular polygon (must be >= 3)
+        :type n_sides: int
+        :param size: Circumradius (distance from center to a vertex)
+        :type size: float
+        :param center: Center of the polygon
+        :type center: np.ndarray or None
+        :param name: Name of the predicate
+        :type name: str or None
+        """
+        if n_sides < 3:
+            raise ValueError("A polygon must have at least 3 sides.")
+
+        if center is None:
+            center = np.zeros(2)
+        else:
+            center = np.array(center).flatten()
+            if len(center) != 2:
+                raise ValueError("Center must be a 2D vector.")
+
+        # Compute inward-pointing normal vectors for each polygon side
+        angles = np.linspace(0, 2 * np.pi, n_sides, endpoint=False) + np.pi / n_sides
+        A = np.vstack([np.array([np.cos(a), np.sin(a)]) for a in angles])
+
+        # Right-hand side of the inequality A x ≤ b
+        b = size * np.ones(n_sides) + A @ center
+
+        polytope = Polyhedron(A, b)
+        super().__init__(polytope=polytope, dims=[0, 1], name=name)
+
+
 class IcosahedronPredicate(Predicate):
 
 

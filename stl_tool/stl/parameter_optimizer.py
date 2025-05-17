@@ -809,29 +809,33 @@ class TasksOptimizer:
 
         print("Selcting a good gain k ...")
         # when barriers have order highr than 1, the problem is no more dpp and thus it takes a lot of time to solve it.
-        if order >= 1:
+        if order > 1:
             k_vals = np.arange(0.01, 0.5, 0.03)
         else :
-            k_vals = np.arange(0.01, 10, 0.03)
+            k_vals = np.arange(0.01, 100, 0.03)
         
         best_k    = k_vals[0]
         best_slak = 1E10
         # Parallelize using multiprocessing
-        for k_val in tqdm(k_vals):
-            k_gain.value = k_val
-    
-            problem.solve(warm_start=True, verbose=False,solver="MOSEK")
-            if problem.status == cp.OPTIMAL and slack.value < 1E-5:
-                best_k = k_val
-                good_k_found = True
-                break
+        with tqdm(total=len(k_vals)) as pbar:
+            for k_val in k_vals:
+                pbar.set_description(f"k = {k_val:.3f}")
+                k_gain.value = k_val
+        
+                problem.solve(warm_start=True, verbose=False,solver="MOSEK")
+                pbar.update(1)
+                if problem.status == cp.OPTIMAL and slack.value < 1E-5:
+                    best_k = k_val
+                    good_k_found = True
+                    break
 
-            elif problem.status == cp.OPTIMAL and slack.value > 1E-5:
-                if slack.value <= best_slak :
-                    best_slak = slack.value
-                    best_k    = k_val 
-            else :
-                continue
+                elif problem.status == cp.OPTIMAL and slack.value > 1E-5:
+                    if slack.value <= best_slak :
+                        best_slak = slack.value
+                        best_k    = k_val 
+                else :
+                    continue
+               
 
         if not good_k_found:
             print("No good k found. Please increase the range of k. Returing k with minimum violation")
