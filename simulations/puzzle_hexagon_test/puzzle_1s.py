@@ -14,7 +14,7 @@ import os
 ##########################################################
 # Create work space and mapo
 ##########################################################
-n_sides = 8
+n_sides = 4
 radius_ws = 10
 workspace     = RegularPolygon2D(n_sides = n_sides,
                                  size    = radius_ws,
@@ -22,12 +22,12 @@ workspace     = RegularPolygon2D(n_sides = n_sides,
                                  name    = "workspace")
 map           = Map(workspace = workspace)
 
-# load obstacles 
-file_path = os.path.join(os.path.dirname(__file__), "map2d.json")
-map_json = loads(open(file_path,mode="r").read())
-map.read_from_json(file_path)
+# # load obstacles 
+# file_path = os.path.join(os.path.dirname(__file__), "map2d.json")
+# map_json = loads(open(file_path,mode="r").read())
+# map.read_from_json(file_path)
 map.draw() # draw if you want :)
-map.enlarge_obstacle(border_size=0.2) # enlarge obstacles
+# map.enlarge_obstacle(border_size=0.2) # enlarge obstacles
 
 ##########################################################
 # system and dynamics
@@ -36,7 +36,7 @@ A             = np.random.rand(2,2)*0.1
 B             = np.diag([1.5,1.5])
 dt            = 1.
 system        = ContinuousLinearSystem(A, B, dt = dt)
-max_input     = 10.
+max_input     = 1.
 input_bounds  = Box2d(x = 0.,y = 0.,size = max_input*2) 
 
 print(A)
@@ -44,48 +44,14 @@ print(A)
 # STL specifications
 ##########################################################
 
-named_map = {item["name"]: item for item in map_json}
+
 radius = 2.5
+p4     = RegularPolygonPredicate2D(n_sides= n_sides,
+                                    size   = radius,
+                                    center = np.array([0., 0.]),
+                                    name   = "interest_4")
 
-
-# first interest point
-intrest_point = named_map["interest_2"]
-p1 = RegularPolygonPredicate2D(n_sides = n_sides,
-                       size=radius,
-                        center=np.array([intrest_point["center_x"], intrest_point["center_y"]]),
-                        name="interest_1")
-
-# second interest point
-intrest_point = named_map["interest_6"]
-p2 = RegularPolygonPredicate2D(n_sides= n_sides,
-                      size=radius,
-                      center=np.array([intrest_point["center_x"], intrest_point["center_y"]]),
-                      name="interest_2")
-
-# third interest point
-intrest_point = named_map["interest_3"]
-p3 = RegularPolygonPredicate2D(n_sides= n_sides,
-                      size=radius,
-               center=np.array([intrest_point["center_x"], intrest_point["center_y"]]),
-               name="interest_3")
-
-# fourth interest point
-intrest_point = named_map["interest_4"]
-p4 = RegularPolygonPredicate2D(n_sides= n_sides,
-                      size   = radius,
-                      center = np.array([intrest_point["center_x"], intrest_point["center_y"]]),
-                      name   = "interest_4")
-
-
-# charging_station 
-intrest_point = named_map["charging_station"]
-c_station = RegularPolygonPredicate2D(n_sides = n_sides,
-                             size    = radius,
-                             center  = np.array([intrest_point["center_x"], intrest_point["center_y"]]),
-                             name    = "charging_station")
-
-
-formula       =  (FOp(20,25) >> p1)  & (FOp(120,150) >> p2) & (GOp(0.01,200) >>  (FOp(0.01,100) >> c_station)) & (GOp(255,265) >> p3)
+formula       =  GOp(10,20) >> p4 
 
 
 fig,ax = map.draw_formula_predicate(formula = formula, alpha =0.2)
@@ -93,7 +59,7 @@ fig,ax = map.draw_formula_predicate(formula = formula, alpha =0.2)
 # # ##########################################################
 # # # From STL to Barriers
 # # ##########################################################
-x_0       = c_station.polytope.sample_random()
+x_0       = np.array([5., 5.]) # start point
 map.show_point(x_0, color = 'r', label = 'start') # show start point
 
 scheduler = TasksOptimizer(formula, workspace,system) # create task optimizer

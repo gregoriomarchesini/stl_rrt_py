@@ -36,7 +36,7 @@ class BarrierFunction :
 
     The function gamma is a piexe wise linear function of the form :math:`\gamma(t) = e \cdot t + g`.
     """
-    def __init__(self, polytope: Polyhedron ) -> None:
+    def __init__(self, polytope: Polyhedron) -> None:
         """
         Initialize the barrier function with a given polytope.
 
@@ -48,10 +48,13 @@ class BarrierFunction :
         self.task_type  = None                              # defines the type of tasks related to this barrier function
         self.interval_satisfaction : TimeInterval = None    # defines the interval of uncertainity in which the task has to be
 
-        self.alpha_var   : cp.Variable =  cp.Variable(nonneg=True)
-        self.beta_var    : cp.Variable =  cp.Variable(nonneg=True)
-        self.gamma_0_var : cp.Variable =  cp.Variable((self.polytope.num_hyperplanes),nonneg=True)
-        self.r_var       : cp.Variable =  cp.Variable(pos=True)
+        self.alpha_var         : cp.Variable =  cp.Variable(nonneg=True)  # stores the alpha value of the barrier.
+        self.beta_var          : cp.Variable =  cp.Variable(nonneg=True)  # stores the beta value of the barrier.
+        self.switching_times   : list[float] = []                        # Stores all the switching times over which the gamma functions on the barrier function should be switched.
+        self.are_variables_set : bool        = False                      # This is a flag specifying of the variables gamma and robustenss r where fixed. These depend from the size of the polytope and the number of switching times.
+
+        self.gamma_0_var : cp.Variable  # gamma zero variables that defined the gamma_0 of each piece wise-affine section
+        self.r_var       : cp.Variable  # total robustness 
 
         self._D_high_order = None
         self._c_high_order = None
@@ -75,12 +78,17 @@ class BarrierFunction :
     
     @property
     def gamma_0(self) -> float:
+        if self.are_variables_set:
+            raise ValueError("The variables have not been set yet. Please set variables first.")
         if self.gamma_0_var.value is None:
             raise ValueError("Gamma_0 variable has not been set yet.")
         return self.gamma_0_var.value
     
     @property
     def r(self) -> float:
+
+        if self.are_variables_set:
+            raise ValueError("The variables have not been set yet. Please set variables first.")
         if self.r_var.value is None:
             raise ValueError("R variable has not been set yet.")
         return self.r_var.value
@@ -113,63 +121,96 @@ class BarrierFunction :
         else :
             return self._c_high_order
 
-    @property
-    def e1_var(self):
-        e_vec = - (self.gamma_0_var/self.alpha) 
-        return e_vec
-    @property
-    def e2_var(self):
-        e_vec = np.zeros(self.polytope.num_hyperplanes)
-        return e_vec
-    @property
-    def g1_var(self) :
-        g_vec = (self.gamma_0_var  - self.r_var)
-        return g_vec
-    @property
-    def g2_var(self) :
-        g_vec = -self.r_var *np.ones(self.polytope.num_hyperplanes) 
-        return g_vec
-    @property
-    def e1_value(self):
-        return - self.gamma_0/self.alpha 
     
-    @property
-    def e2_value(self):
-        return np.zeros(self.polytope.num_hyperplanes)
-    
-    @property
-    def g1_value(self):
-        return (self.gamma_0 - self.r) 
-    
-    @property
-    def g2_value(self):
-        return - self.r * np.ones(self.polytope.num_hyperplanes)
-    
-
-    def upsilon(self,t:float)-> int :
-        """
-        Return 1 or 2 depending on which linear section of the function the given time is in.
-
-        if t < alpha then return 1\n
-        if t > alpha and t < beta then return 2\n
-        if t > beta then raise ValueError\n
-
-        :param t: Time value.
-        :type t: float
-        :return: 1 or 2 depending on the section.
-        :rtype: int
-
-
-        """
-        t = float(t)
-
-        if (t >= 0.) and (t < self.alpha):
-            return 1
-        elif (t >= self.alpha) and (t <= self.beta):
-            return 2
-        else :
-            raise ValueError("The given time time is outside the range [0,beta].")
+    def set_variables(self,switching_times : list[float]) -> None:
         
+        self.switching_times            = sorted([t for t in switching_times if t <= np.round(self.beta_var.value,2)]) # add alpha and beta to the list of switching times
+        self.sequence_of_time_intervals = [TimeInterval(self.switching_times[jj],self.switching_times[jj+1]) for jj in range(len(self.switching_times)-1)] # list of time intervals
+        num_gamma_variables             = len(self.sequence_of_time_intervals)   # these is one gamma variable per time interval
+        
+        self.gamma_0_var   = cp.Variable((self.polytope.num_hyperplanes,num_gamma_variables )) # gamma_0 variables that defined the gamma_0 of each piece wise-affine section
+        self.r_var         = cp.Variable((self.polytope.num_hyperplanes,1), pos = True)        # robustness along one hyperplane 
+        self.are_variables_set = True
+
+    def e_vectors(self, t:float) -> cp.Variable:
+        """
+        time derivative of the gamma function for a given section
+        """
+        if not self.are_variables_set:
+            raise ValueError("The variables have not been set yet. Please set variables first.")
+        
+        for time_interval in self.sequence_of_time_intervals :
+            if t< time_interval.b and t >= time_interval.a : # the upper bound is strict. It is not a typo
+                index = self.sequence_of_time_intervals.index(time_interval)
+                ai    = time_interval.a
+                bi    = time_interval.b
+                break
+
+        else :
+            raise ValueError("The time value is not in the range of the barrier function. Please provide a valid time value.")
+        
+
+        if index == self.gamma_0_var.shape[1]-1 :
+            e = np.zeros(self.gamma_0_var.shape[0])
+        else:    
+            gamma_i = self.gamma_0_var[:,index] 
+            gamma_iplus1 = self.gamma_0_var[:,index+1]
+            e = -(gamma_i - gamma_iplus1)/(bi-ai)
+
+        return e
+
+    def g_vectors(self,t:float) -> cp.Variable:
+
+        if not self.are_variables_set:
+            raise ValueError("The variables have not been set yet. Please set variables first.")
+
+        for time_interval in self.sequence_of_time_intervals :
+            if t< time_interval.b and t >= time_interval.a : # the upper bound is strict. It is not a typo
+                index = self.sequence_of_time_intervals.index(time_interval)
+                ai    = time_interval.a
+                bi    = time_interval.b
+                break
+
+        else :
+            raise ValueError("The time value is not in the range of the barrier function. Please provide a valid time value.")
+
+        if index == self.gamma_0_var.shape[1] -1 :
+            gamma_i = self.gamma_0_var[:,index] 
+            g = gamma_i 
+        else:    
+            gamma_i = self.gamma_0_var[:,index] 
+            gamma_iplus1 = self.gamma_0_var[:,index+1]
+            g = ai*(gamma_i - gamma_iplus1)/(bi-ai) + gamma_i
+
+        return g
+    
+    def get_index_of_containing_interval(self, t:float) -> int:
+        """
+        Get the index of the time interval that contains the given time value.
+
+        :param t: The time value.
+        :type t: float
+        :return: The index of the time interval.
+        :rtype: int
+        """
+        for time_interval in self.sequence_of_time_intervals :
+            if t< time_interval.b and t >= time_interval.a : # upper limit is strinc (it is not a typo)
+                index = self.sequence_of_time_intervals.index(time_interval)
+                break
+        else :
+            raise ValueError("The time value is not in the range of the barrier function. Please provide a valid time value.")
+
+        return index
+
+    def get_decaying_gamma_constraints(self) -> list[cp.Constraint]:
+        
+        constraints = []
+        for jj in range(self.gamma_0_var.shape[1]-1):
+            constraints += [self.gamma_0_var[:,jj] - self.gamma_0_var[:,jj+1] >= 0]
+
+        return constraints
+    
+
     def set_high_order_constraints(self, D_high: np.ndarray, c_high: np.ndarray) -> None:
         """
         A barrier function is associated with an order depending on the dynamics it is applied to. Namely, a common constraints applied to defined the forward invariance of the \n
@@ -208,7 +249,7 @@ class TasksOptimizer:
         self._barriers         : list[BarrierFunction]  = []
         self._time_constraints : list[cp.Constraint]    = []
 
-        self.task_durations : list[dict]              = []
+        self.task_durations : list[dict]                = []
 
         self._time_varying_polytope_constraints : list[TimeVaryingConstraint] = []
 
@@ -237,7 +278,6 @@ class TasksOptimizer:
             pass
         
         # subdivide in sumbformulas
-        possible_fomulas = ["G", "F", "FG", "GF"]
         potential_varphi = []
         if is_a_conjunction :
             for child_node in self.formula.root.children : # take all the children nodes and check that the remaining formulas are in the predicate
@@ -273,7 +313,7 @@ class TasksOptimizer:
                 barrier : BarrierFunction  = BarrierFunction(polytope)
                 barrier.task_type          = varphi_type
                 
-                ## Give initial guess to the solver
+                ## Given initial guess to the solver
                 barrier.alpha_var.value = time_interval.a
                 barrier.beta_var.value  = time_interval.b
 
@@ -668,7 +708,7 @@ class TasksOptimizer:
         plt.tight_layout()
 
     
-    def optimize_barriers(self, input_bounds: Polyhedron , x_0 : np.ndarray, minimize_robustness = True) :
+    def optimize_barriers(self, input_bounds: Polyhedron , x_0 : np.ndarray, minimize_robustness = True, base_line_number_of_switching_times :int = 10) :
         
         
         if input_bounds.is_open:
@@ -686,13 +726,17 @@ class TasksOptimizer:
             raise ValueError("The initial state must be a vector of the same dimension as the workspace.")
 
         
-        vertices              = self._workspace.vertices.T # matrix [dim x,num_vertices]
-        x_dim                 = self._workspace.num_dimensions
-        set_of_time_intervals = list({ barrier.alpha for barrier in self._barriers} | { barrier.beta for barrier in self._barriers} | {0.}) # repeated time instants will be counted once in this way
-        ordered_sequence      = sorted(set_of_time_intervals)
-        k_gain                = cp.Parameter(pos=True) #! (when program fails try to increase control input and increase the k_gain. Carefully analyze the situation. Usually it should be at leat equal to 1.)
+        vertices        = self._workspace.vertices.T # matrix [dim x,num_vertices]
+        x_dim           = self._workspace.num_dimensions
+        switching_times = { float(np.round(barrier.alpha,2)) for barrier in self._barriers} | { float(np.round(barrier.beta,2)) for barrier in self._barriers} | {0.} # repeated time instants will be counted once in this way
         
-        order = self._make_high_order_corrections(system = self.system, k_gain = k_gain)
+        max_time     = max(switching_times)
+        time_grid    = set(np.linspace(0, max_time, base_line_number_of_switching_times).tolist())
+
+        # integrate the alpha and beta switching times into the time grid (so time steps between switching times will not be homogenous)
+        time_grid  = sorted(list(time_grid | switching_times))
+        k_gain     = cp.Parameter(pos=True) #! (when program fails try to increase control input and increase the k_gain. Carefully analyze the situation. Usually it should be at leat equal to 1.)
+        order      = self._make_high_order_corrections(system = self.system, k_gain = k_gain)
         
 
         A = self.system.A
@@ -703,11 +747,11 @@ class TasksOptimizer:
         constraints  :list[cp.Constraint]  = []
 
         # dynamic constraints
-        for jj in range(len(ordered_sequence)-1): # for each interval
+        for jj in range(len(time_grid)-1): # for each interval
             
             # Get two consecutive time intervals in the sequence.
-            s_j        = ordered_sequence[jj]
-            s_j_plus_1 = ordered_sequence[jj+1]
+            s_j        = time_grid[jj]
+            s_j_plus_1 = time_grid[jj+1]
 
             # Create vertices set. 
             s_j_vec        = np.array([s_j for i in range(vertices.shape[1])]) # column vector
@@ -722,15 +766,13 @@ class TasksOptimizer:
             # Forward-invariance constraints. 
             for active_task_index in self.active_barriers_map(s_j): # for each active task
                 barrier = self._barriers[active_task_index] 
-                
-                # select correct section (equivalent to upsilon)
-                if barrier.upsilon(s_j) == 1 : # then (s_i,s_i_plus_1) in [0,\alpha_l]
-                    e = barrier.e1_var
-                    g = barrier.g1_var
-                else: # then (s_i,s_i_plus_1) in [\alpha_l,\beta_l]
-                    e = barrier.e2_var
-                    g = barrier.g2_var
 
+                # set up variables gamma and robustness for the given barrier 
+                barrier.set_variables(switching_times = time_grid)
+
+                e = barrier.e_vectors(s_j) # time derivative of the gamma function for a given section
+                g = barrier.g_vectors(s_j) # gamma function for a given section
+                
                 c = barrier.c
                 D = barrier.D
                 
@@ -747,6 +789,18 @@ class TasksOptimizer:
                     c_high_order = barrier.c_high_order
 
                     constraints        += [D_high_order @ dyn + e + k_gain * (D_high_order @ eta_ii_not_time + e*time + c_high_order + g ) + slack>= 0]
+                
+
+                # add robustness constraint when necessary
+                if s_j>= barrier.alpha_var.value: # you are inside [alpha,beta]
+                    index   = barrier.get_index_of_containing_interval(s_j)
+                    gamma_j = barrier.gamma_0_var[:,index]
+                    constraints += [gamma_j == barrier.r_var] 
+        
+
+        # add decaying gamma constraint for each barrier
+        for barrier in self._barriers:
+            constraints += barrier.get_decaying_gamma_constraints()
 
         # Inclusion constraints
         betas        = list({ barrier.beta for barrier in self._barriers} | {0.}) # set inside the list removes duplicates if any.
@@ -764,15 +818,11 @@ class TasksOptimizer:
 
             for l_tilde in self.active_barriers_map(betas[l-1]) : # barriers active at lim t-> - beta_l is equal to the one active at time beta_{l-1}
                 
-                if self._barriers[l_tilde].upsilon(beta_l) == 1: # checking for the value of upsilon
-                    e = self._barriers[l_tilde].e1_var
-                    g = self._barriers[l_tilde].g1_var
-                else:
-                    e = self._barriers[l_tilde].e2_var
-                    g = self._barriers[l_tilde].g2_var
-
+                e = self._barriers[l_tilde].e_vectors(beta_l)
+                g = self._barriers[l_tilde].g_vectors(beta_l)
                 D = self._barriers[l_tilde].D  
                 c = self._barriers[l_tilde].c
+
                 constraints += [D @ zeta_l + e * beta_l + c + g >= 0]
         
         # set the zeta at beta=0 zero and conclude
@@ -781,9 +831,9 @@ class TasksOptimizer:
         epsilon = 3E-1 # just to be strictly inside
         for barrier in self._barriers:
             # at time beta=0 all tasks are active and they are in the first linear section of gamma
-            e = barrier.e1_var
-            g = barrier.g1_var
             
+            e = barrier.e_vectors(0.)
+            g = barrier.g_vectors(0.)
             c = barrier.c
             D = barrier.D
 
@@ -796,7 +846,7 @@ class TasksOptimizer:
         cost = 0
         if minimize_robustness:
             for barrier in self._barriers:
-                cost += -barrier.r_var
+                cost += -cp.sum(barrier.r_var)
         else:
             for barrier in self._barriers:
                 cost += -cp.sum(barrier.gamma_0_var)
@@ -850,7 +900,7 @@ class TasksOptimizer:
         print("number of variables            : ", sum(var.size for var in problem.variables()))
         print("Optimal Cost (expluding slack) :" , cost.value)
         print("Maximum Slack violation        : ", slack.value)
-        print('Robustness                     : ', min(barrier.r_var.value for barrier in self._barriers))
+        print('Robustness                     : ', min( np.min(barrier.r_var.value) for barrier in self._barriers))
         print("-----------------------------------------------------------")
         print("Listing parameters per task")
 
@@ -870,28 +920,24 @@ class TasksOptimizer:
         for barrier in self._barriers:
             D = barrier.D
             c = barrier.c
-            e1 = barrier.e1_value
-            e2 = barrier.e2_value
-            g1 = barrier.g1_value
-            g2 = barrier.g2_value
 
-            alpha = barrier.alpha
-            beta  = barrier.beta
+            for time_interval in barrier.sequence_of_time_intervals :
+
             
-            H1 = np.hstack((D,e1[:,np.newaxis]))
-            H2 = np.hstack((D,e2[:,np.newaxis]))
+                e = barrier.e_vectors(time_interval.a).value
+                g = barrier.g_vectors(time_interval.a).value
+    
+                start = time_interval.a
+                end = time_interval.b
+                
+                H = np.hstack((D,e[:,np.newaxis]))
+                b =  c + g
 
-            b1 =  c + g1
-            b2 =  c + g2
-
-            # convert from the form Hx + c >= 0 to Hx <= b
-            H1 = -H1
-            H2 = -H2
-            
-            if np.abs((beta-alpha))<= 1E-5:
-                self._time_varying_polytope_constraints += [TimeVaryingConstraint(start_time=0., end_time=alpha, H=H1, b=b1)] # the second part of the constraint it is just flat so we can remove it.
-            else:
-                self._time_varying_polytope_constraints += [TimeVaryingConstraint(start_time=0., end_time=alpha, H=H1, b=b1), TimeVaryingConstraint(start_time=alpha, end_time=beta, H=H2, b=b2)]
+                # convert from the form Hx + c >= 0 to Hx <= b
+                H = -H
+                
+                if np.abs((end-start))<= 1E-5: # avoid inserting the polytope if the interval of time is very small
+                    self._time_varying_polytope_constraints += [TimeVaryingConstraint(start_time=start, end_time=end, H=H, b=b)] # the second part of the constraint it is just flat so we can remove it.
             
 
         return problem.solver_stats
