@@ -56,8 +56,8 @@ class BarrierFunction :
         self.slopes_var  : list[cp.Variable] = [ cp.Variable(polytope.num_hyperplanes, neg= True, name = f"section_{jj}_of_{len(time_grid)-1}") for jj in range(len(time_grid)-1) ]# one slope for each interva
         
         self.gamma_0_var : cp.Variable = cp.Variable((polytope.num_hyperplanes), pos=True, name="gamma_0") # initial value of the gamma function
-        self.r_var       : cp.Variable = cp.Variable((polytope.num_hyperplanes), pos=True, name="robustness")
-        self.r_var.value = np.ones(self.r_var.shape)*100 # initial guess for the robustness
+        self.r_var       : cp.Variable = cp.Variable( pos=True, name="robustness")  # robustness of the barrier function
+        self.r_var.value = 100. # initial guess for the robustness
 
         self._D_high_order = None
         self._c_high_order = None
@@ -650,7 +650,8 @@ class BarriersOptimizer:
         self.barriers                          : list[BarrierFunction]       = []
         self.time_varying_polytope_constraints : list[TimeVaryingConstraint] = []
 
-        list_of_switches = list({ float(task.alpha_var.value) for task in self.tasks_list if hasattr(task,"alpha_var")} | { float(task.beta_var.value) for task in self.tasks_list} | {0.} )
+        list_of_switches = sorted(list({ float(task.alpha_var.value) for task in self.tasks_list if hasattr(task,"alpha_var")} | { float(task.beta_var.value) for task in self.tasks_list} | {0.} ))
+        
         additional_switches = []
         # add point in between every pair of points
         for jj in range(len(list_of_switches)-1):
@@ -795,7 +796,7 @@ class BarriersOptimizer:
         A = self.system.A
         B = self.system.B
         slack         = cp.Variable(nonneg = True)
-        slack_penalty = 1E8
+        slack_penalty = 1E9
 
         constraints  :list[cp.Constraint]  = []
 
@@ -823,6 +824,7 @@ class BarriersOptimizer:
 
                 e = barrier.e_vector(s_j) # time derivative of the gamma function for a given section
                 g = barrier.g_vector(s_j) # gamma function for a given section
+                gama_as_sj = barrier.gamma_at_time(s_j) # gamma function for a given section
                 
                 c = barrier.c
                 D = barrier.D
@@ -837,7 +839,7 @@ class BarriersOptimizer:
 
                     D_high_order        = barrier.D_high_order
                     c_high_order        = barrier.c_high_order
-                    constraints        += [D_high_order @ dyn + e + k_gain * (D_high_order @ eta_ii_not_time + e*time + c_high_order + g ) + slack>= 0]
+                    constraints        += [D_high_order @ dyn + e + k_gain * (D_high_order @ eta_ii_not_time + c_high_order + gama_as_sj ) + slack>= 0]
                     
 
         # Add flatness constraint
@@ -848,26 +850,24 @@ class BarriersOptimizer:
         betas        = list({ barrier.time_grid[-1] for barrier in self.barriers}) # set inside the list removes duplicates if any.
         betas        = sorted(betas)
         
-        epsilon = 1E-1 
+        epsilon = 1.
         zeta_vars    = cp.Variable(( x_dim, len(betas)))
         # Impose zeta vars in the workspace
         for kk in range(1,zeta_vars.shape[1]):
             zeta_kk       =  zeta_vars[:,kk]
             constraints  += [self.workspace.A @ zeta_kk <= self.workspace.b]
         
-
         for l in range(1,len(betas)):
             beta_l = betas[l]
             zeta_l = zeta_vars[:,l]
 
             for l_tilde in self.active_barriers_map(betas[l-1]) : # barriers active at lim t-> - beta_l is equal to the one active at time beta_{l-1}
                 
-                e = self.barriers[l_tilde].e_vector(beta_l-0.001)
-                g = self.barriers[l_tilde].g_vector(beta_l-0.001)
-                D = self.barriers[l_tilde].D  
-                c = self.barriers[l_tilde].c
+                gamma_at_beta_l = self.barriers[l_tilde].gamma_at_time(beta_l-0.001) # gamma function for a given section
+                D               = self.barriers[l_tilde].D  
+                c               = self.barriers[l_tilde].c
 
-                constraints += [D @ zeta_l + e * beta_l + c + g >= epsilon ] # epsilon just to make sure the point is not at the boundary and it is strictly inside
+                constraints += [D @ zeta_l + c +  gamma_at_beta_l >= epsilon ] # epsilon just to make sure the point is not at the boundary and it is strictly inside
         
         # set the zeta at beta=0 zero and conclude
         # initial state constraint
@@ -876,12 +876,11 @@ class BarriersOptimizer:
         for barrier in self.barriers:
             # at time beta=0 all tasks are active and they are in the first linear section of gamma
             
-            e = barrier.e_vector(0.)
-            g = barrier.g_vector(0.)
             c = barrier.c
             D = barrier.D
+            gamma_at_zero = barrier.gamma_at_time(0.)
 
-            constraints += [D @ zeta_0 + e*0 + c + g >= epsilon] # constraint at time 0 (epsilon just to be strictly inside)
+            constraints += [D @ zeta_0 + c +  gamma_at_zero >= epsilon] # constraint at time 0 (epsilon just to be strictly inside)
         
         # initial state constraint
         constraints += [zeta_0 == x_0]
@@ -890,7 +889,7 @@ class BarriersOptimizer:
         cost = 0.
         if self.minimize_r:
             for barrier in self.barriers:
-                cost      +=  10000*cp.exp(-cp.sum(barrier.r_var)/1000)
+                cost      +=  10000*cp.exp(-cp.sum(barrier.r_var)/10)
                 slack_cost = slack_penalty * slack
                 problem    = cp.Problem(cp.Minimize(cost+slack_cost), constraints)
         else:
