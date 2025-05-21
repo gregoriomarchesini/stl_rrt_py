@@ -163,7 +163,7 @@ class RegularPolygonPredicate2D(Predicate):
                 raise ValueError("Center must be a 2D vector.")
 
         # Compute inward-pointing normal vectors for each polygon side
-        angles = np.linspace(0, 2 * np.pi, n_sides, endpoint=False) + np.pi / n_sides
+        angles = np.linspace(0, 2 * np.pi, n_sides, endpoint=False)
         A = np.vstack([np.array([np.cos(a), np.sin(a)]) for a in angles])
 
         # Right-hand side of the inequality A x ≤ b

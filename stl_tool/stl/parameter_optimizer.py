@@ -36,7 +36,7 @@ class BarrierFunction :
 
     The function gamma is a piexe wise linear function of the form :math:`\gamma(t) = e \cdot t + g`.
     """
-    def __init__(self, polytope: Polyhedron) -> None:
+    def __init__(self, polytope: Polyhedron, time_grid : list[float],flat_time : float) -> None:
         """
         Initialize the barrier function with a given polytope.
 
@@ -44,54 +44,27 @@ class BarrierFunction :
         :type polytope: Polytope
         """
         
-        self.polytope   = polytope
-        self.task_type  = None                              # defines the type of tasks related to this barrier function
-        self.interval_satisfaction : TimeInterval = None    # defines the interval of uncertainity in which the task has to be
+        self.polytope  : Polyhedron  = polytope
+        self.time_grid : list[float] = sorted(time_grid)
+        
+        self.time_step : list[float] = [time_grid[jj+1] - time_grid[jj] for jj in range(len(time_grid)-1)]
+        self.num_time_intervals = len(time_grid)-1
 
-        self.alpha_var         : cp.Variable =  cp.Variable(nonneg=True)  # stores the alpha value of the barrier.
-        self.beta_var          : cp.Variable =  cp.Variable(nonneg=True)  # stores the beta value of the barrier.
-        self.switching_times   : list[float] = []                        # Stores all the switching times over which the gamma functions on the barrier function should be switched.
-        self.are_variables_set : bool        = False                      # This is a flag specifying of the variables gamma and robustenss r where fixed. These depend from the size of the polytope and the number of switching times.
+        self.flat_time : float       = flat_time
+        
 
-        self.gamma_0_var : cp.Variable  # gamma zero variables that defined the gamma_0 of each piece wise-affine section
-        self.r_var       : cp.Variable  # total robustness 
+        self.slopes_var  : list[cp.Variable] = [ cp.Variable(polytope.num_hyperplanes, neg= True, name = f"section_{jj}_of_{len(time_grid)-1}") for jj in range(len(time_grid)-1) ]# one slope for each interva
+        
+        self.gamma_0_var : cp.Variable = cp.Variable((polytope.num_hyperplanes), pos=True, name="gamma_0") # initial value of the gamma function
+        self.r_var       : cp.Variable = cp.Variable((polytope.num_hyperplanes), pos=True, name="robustness")
+        self.r_var.value = np.ones(self.r_var.shape)*100 # initial guess for the robustness
 
         self._D_high_order = None
         self._c_high_order = None
         
-        #! do not touch!
-        self._a_prime : float = 0.0
-        self._b_prime : float = 0.0
-        
-        
-    @property
-    def alpha(self) -> float:
-        if self.alpha_var.value is None:
-            raise ValueError("Alpha variable has not been set yet.")
-        return self.alpha_var.value
+        self.flat_time : float = flat_time # time from which the slope must be zero
     
-    @property
-    def beta(self) -> float:
-        if self.beta_var.value is None:
-            raise ValueError("Beta variable has not been set yet.")
-        return self.beta_var.value
     
-    @property
-    def gamma_0(self) -> float:
-        if self.are_variables_set:
-            raise ValueError("The variables have not been set yet. Please set variables first.")
-        if self.gamma_0_var.value is None:
-            raise ValueError("Gamma_0 variable has not been set yet.")
-        return self.gamma_0_var.value
-    
-    @property
-    def r(self) -> float:
-
-        if self.are_variables_set:
-            raise ValueError("The variables have not been set yet. Please set variables first.")
-        if self.r_var.value is None:
-            raise ValueError("R variable has not been set yet.")
-        return self.r_var.value
     
     
     @property
@@ -106,7 +79,7 @@ class BarrierFunction :
         """
         c vector of the barrier function :math:`b(x,t) = Dx +c + \gamma(t)`
         """
-        return self.polytope.b
+        return self.polytope.b 
     
     @property
     def D_high_order(self) -> np.ndarray:
@@ -120,97 +93,113 @@ class BarrierFunction :
             return self.c
         else :
             return self._c_high_order
-
-    
-    def set_variables(self,switching_times : list[float]) -> None:
         
-        self.switching_times            = sorted([t for t in switching_times if t <= np.round(self.beta_var.value,2)]) # add alpha and beta to the list of switching times
-        self.sequence_of_time_intervals = [TimeInterval(self.switching_times[jj],self.switching_times[jj+1]) for jj in range(len(self.switching_times)-1)] # list of time intervals
-        num_gamma_variables             = len(self.sequence_of_time_intervals)   # these is one gamma variable per time interval
-        
-        self.gamma_0_var   = cp.Variable((self.polytope.num_hyperplanes,num_gamma_variables )) # gamma_0 variables that defined the gamma_0 of each piece wise-affine section
-        self.r_var         = cp.Variable((self.polytope.num_hyperplanes,1), pos = True)        # robustness along one hyperplane 
-        self.are_variables_set = True
 
-    def e_vectors(self, t:float) -> cp.Variable:
+
+    def e_vector(self, t:float) -> cp.Variable:
         """
         time derivative of the gamma function for a given section
         """
-        if not self.are_variables_set:
-            raise ValueError("The variables have not been set yet. Please set variables first.")
+
+        if t < self.time_grid[0] or t > self.time_grid[-1]:
+            raise ValueError("The time t is not in the time grid. Please check the time grid and the time t. The given time is " + str(t) + " and the time grid is " + str(self.time_grid))
         
-        for time_interval in self.sequence_of_time_intervals :
-            if t< time_interval.b and t >= time_interval.a : # the upper bound is strict. It is not a typo
-                index = self.sequence_of_time_intervals.index(time_interval)
-                ai    = time_interval.a
-                bi    = time_interval.b
-                break
+        elif t == self.time_grid[-1] :
+            e = self.slopes_var[-1]
 
-        else :
-            raise ValueError("The time value is not in the range of the barrier function. Please provide a valid time value.")
-        
-
-        if index == self.gamma_0_var.shape[1]-1 :
-            e = np.zeros(self.gamma_0_var.shape[0])
-        else:    
-            gamma_i = self.gamma_0_var[:,index] 
-            gamma_iplus1 = self.gamma_0_var[:,index+1]
-            e = -(gamma_i - gamma_iplus1)/(bi-ai)
-
+    
+        else : # if the time is in the range and it is not the last time in the grid then it will be contained in one of the intervals
+            for jj in range(self.num_time_intervals):
+                if t< self.time_grid[jj+1] and t >= self.time_grid[jj] :
+                    e = self.slopes_var[jj]
+                    break
         return e
 
-    def g_vectors(self,t:float) -> cp.Variable:
+    def g_vector(self,t:float) -> cp.Variable:
 
-        if not self.are_variables_set:
-            raise ValueError("The variables have not been set yet. Please set variables first.")
+        if t < self.time_grid[0] or t > self.time_grid[-1]:
+            raise ValueError("The time t is not in the time grid. Please check the time grid and the time t. The given time is " + str(t) + " and the time grid is " + str(self.time_grid))
 
-        for time_interval in self.sequence_of_time_intervals :
-            if t< time_interval.b and t >= time_interval.a : # the upper bound is strict. It is not a typo
-                index = self.sequence_of_time_intervals.index(time_interval)
-                ai    = time_interval.a
-                bi    = time_interval.b
-                break
+        elif t == self.time_grid[-1]:
+            
+            sum_gammas               = cp.sum([self.time_step[k] * self.slopes_var[k] for k in range(self.num_time_intervals-1)])
+            one_before_the_last_time = self.time_grid[-2]
+            last_slope               = self.slopes_var[-1]
+            g                        = self.gamma_0_var + sum_gammas - last_slope*one_before_the_last_time
+        
+        else: # if the time is in the range and it is not the last time in the grid then it will be contained in one of the intervals
 
-        else :
-            raise ValueError("The time value is not in the range of the barrier function. Please provide a valid time value.")
+            for jj in range(self.num_time_intervals):
+                if t< self.time_grid[jj+1] and t >= self.time_grid[jj] :
+                    
+                    if jj > 0:
+                        sum_gammas = cp.sum([self.time_step[k] * self.slopes_var[k] for k in range(jj)])
 
-        if index == self.gamma_0_var.shape[1] -1 :
-            gamma_i = self.gamma_0_var[:,index] 
-            g = gamma_i 
-        else:    
-            gamma_i = self.gamma_0_var[:,index] 
-            gamma_iplus1 = self.gamma_0_var[:,index+1]
-            g = ai*(gamma_i - gamma_iplus1)/(bi-ai) + gamma_i
-
+                    else :
+                        sum_gammas= 0.
+                
+                    g = self.gamma_0_var + sum_gammas  - self.slopes_var[jj]*self.time_grid[jj] 
+                    break
+        
         return g
     
-    def get_index_of_containing_interval(self, t:float) -> int:
+    def gamma_at_time(self,t:float) -> cp.Variable:
         """
-        Get the index of the time interval that contains the given time value.
-
-        :param t: The time value.
-        :type t: float
-        :return: The index of the time interval.
-        :rtype: int
+        Gamma function at a given time t.
         """
-        for time_interval in self.sequence_of_time_intervals :
-            if t< time_interval.b and t >= time_interval.a : # upper limit is strinc (it is not a typo)
-                index = self.sequence_of_time_intervals.index(time_interval)
-                break
-        else :
-            raise ValueError("The time value is not in the range of the barrier function. Please provide a valid time value.")
 
-        return index
 
-    def get_decaying_gamma_constraints(self) -> list[cp.Constraint]:
+        return self.e_vector(t)*t + self.g_vector(t)
+    
+    def get_gamma_flat_constraint(self):
         
         constraints = []
-        for jj in range(self.gamma_0_var.shape[1]-1):
-            constraints += [self.gamma_0_var[:,jj] - self.gamma_0_var[:,jj+1] >= 0]
 
+        if self.flat_time == self.time_grid[-1]:
+            # it is an eventually task and so there is not flat region of the gamma
+            gamma_flat = self.gamma_at_time(self.flat_time) 
+            constraints += [gamma_flat == -self.r_var] # eual to the robustness
+        
+        else:
+            
+            
+            for jj in range(self.num_time_intervals):
+                if self.time_grid[jj]>= self.flat_time : # the interval is contained between flat_time and then end of the grid
+                    slope = self.slopes_var[jj]
+                    gamma_flat = self.gamma_at_time(self.time_grid[jj])
+
+                    constraints += [gamma_flat == -self.r_var] # eual to the robustness
+                    constraints += [slope == 0.] # flat output
+        
         return constraints
     
 
+    def plot_gamma(self, ax,**kwargs) -> None:
+        if self.gamma_0_var is None or self.slopes_var is None:
+            print("Barrier yet not optimized. Please optimize the barrier first.")
+        
+        if ax is None :
+            fig, ax = plt.subplots(figsize=(10, 4))
+
+        gamma_line = []
+        time_range = np.linspace(self.time_grid[0],self.time_grid[-1],100)
+        for t in time_range:
+            gamma_line += [self.gamma_at_time(t).value]
+        
+        gamma_line = np.array(gamma_line)
+        label_plot = kwargs.pop("label",None)
+        for jj in range(gamma_line.shape[1]) :
+            if jj == 0:
+                ax.plot(time_range, np.array(gamma_line[:,jj]), label = label_plot, **kwargs)
+            else :
+                ax.plot(time_range, np.array(gamma_line[:,jj]), **kwargs)
+
+        ax.set_title("Gamma function")
+        ax.set_xlabel("Time")
+        ax.set_ylabel("Gamma")
+
+
+    
     def set_high_order_constraints(self, D_high: np.ndarray, c_high: np.ndarray) -> None:
         """
         A barrier function is associated with an order depending on the dynamics it is applied to. Namely, a common constraints applied to defined the forward invariance of the \n
@@ -237,35 +226,60 @@ class BarrierFunction :
 
 
 
-class TasksOptimizer:
+class AlwaysTask:
+    """
+    This is an interval reprentation of a task. It is just a disctionary that contains a polytope (the predicate level set of the formula),
+    The time interval of satisfaction (obtained by the task scheduler) and the type of the task.
+    """
+    def __init__(self, polytope: Polyhedron,time_interval:TimeInterval, secondary_time_interval : TimeInterval = None) -> None:
+        self.polytope : Polyhedron   = polytope
+        self.alpha_var : cp.Variable =  cp.Variable(nonneg=True)  # stores the alpha value of the barrier.
+        self.beta_var  : cp.Variable =  cp.Variable(nonneg=True)  # stores the beta value of the barrier.
+        self.time_interval : TimeInterval = time_interval # time interval of the task
+        self.secondary_time_interval : TimeInterval = secondary_time_interval # time interval of the task
     
-    def __init__(self,formula : Formula, workspace: Polyhedron, system : ContinuousLinearSystem ) -> None:
-        
-        self.formula           : Formula                 = formula
-        self._workspace        : Polyhedron                = workspace
-        self.system            : ContinuousLinearSystem  = system
 
-        self._varphi_formulas  : list[Formula]          = [] # subformulas G,F,FG,GF
-        self._barriers         : list[BarrierFunction]  = []
-        self._time_constraints : list[cp.Constraint]    = []
+class EventuallyTask:
+    """
+    This is an interval reprentation of a task. It is just a disctionary that contains a polytope (the predicate level set of the formula),
+    The time interval of satisfaction (obtained by the task scheduler) and the type of the task.
+    """
+    def __init__(self, polytope: Polyhedron,time_interval:TimeInterval) -> None:
+        self.polytope  : Polyhedron   = polytope
+        self.beta_var  : cp.Variable  =  cp.Variable(nonneg=True)  # stores the alpha value of the barrier.
+        self.time_interval : TimeInterval = time_interval # time interval of the task
+        self.derived = False
+    def flag_as_derived_from_always_eventually(self) :
+        """
+        Flag the task as derived from an always-eventually task.
+        """
+        self.derived = True
 
-        self.task_durations : list[dict]                = []
+    
 
-        self._time_varying_polytope_constraints : list[TimeVaryingConstraint] = []
 
-        if workspace.is_open:
-            raise ValueError("The workspace is an open Polyhedron. Please provide a closed polytope")
+class TaskScheduler:
+    def __init__(self,formula : Formula, systems : ContinuousLinearSystem) -> None:
 
-    def _create_barriers_and_time_constraints(self) :
+        self.formula : Formula                = formula
+        self.system  : ContinuousLinearSystem = systems
+
+        self.tasks_list      : list[EventuallyTask|AlwaysTask] = [] # list of tasks
+        self.varphi_tasks    : list[Formula]  = [] # list of varphi tasks (only always and eventually tasks here)
+
+        self.already_optimized : bool = False
+        self.time_constraints :list[cp.Constraint]   =  []
+
+        self.get_varphi_tasks()
+        self.detect_conflicting_conjunctions_and_give_good_time_guesses()
+        self.make_time_schedule()
+
+    def get_varphi_tasks(self) :
         """
         From this function, the following tasks are accomplished:
-            1) The given formula is sectioned sub tasks varphi.
-            2) Each task var phi is converted into a barrier function.
+            1) The given formula is sectioned into subtasks varphi of type F,G,FG,GF.
+            2) For each formula we create the time variables that are needed to satisfy the task.
         """
-
-     
-        barriers         : list[BarrierFunction]    = []
-        time_constraints : list[cp.Constraint]      = []
 
         is_a_conjunction = False
 
@@ -278,25 +292,25 @@ class TasksOptimizer:
             pass
         
         # subdivide in sumbformulas
-        potential_varphi = []
+        potential_varphi_tasks : list[Formula] = []
         if is_a_conjunction :
             for child_node in self.formula.root.children : # take all the children nodes and check that the remaining formulas are in the predicate
                 varphi = Formula(root = child_node)
-                potential_varphi += [varphi]
+                potential_varphi_tasks += [varphi]
+  
         else: 
-            potential_varphi = [self.formula]
+            potential_varphi_tasks = [self.formula]
 
-        
-
-        for varphi in  potential_varphi : # take all the children nodes and check that the remaining formulas are in the predicate
+        for varphi in  potential_varphi_tasks : # take all the children nodes and check that the remaining formulas are in the predicate
             
             varphi_type, predicate_node = get_fomula_type_and_predicate_node(formula = varphi)
 
-            root          : Union[FOp,UOp,GOp] = varphi.root
-            time_interval : TimeInterval       = root.interval
-            dims          : list[int]          = predicate_node.dims
-            polytope      : Polyhedron           = predicate_node.polytope
+            root          : Union[FOp,UOp,GOp]   = varphi.root              # Temporal operator of the fomula.
+            time_interval : TimeInterval         = varphi.root.interval     # Time interval of the formula.
+            dims          : list[int]            = predicate_node.dims      # Dimensions over which the formula is applied.
             
+            # create output matrix since the polyhedron is defined in the output space.
+            # ACx <= b.
             try : 
                 C   = self.system.output_matrix_from_dimension(dims) 
             except Exception as e:
@@ -305,100 +319,63 @@ class TasksOptimizer:
                     f"The raised exception is the following")
                 raise e
             
-            polytope = Polyhedron(A = polytope.A@C, b = polytope.b) # bring polytope to suitable dimension
+            polytope = Polyhedron(A = predicate_node.polytope.A@C, b = predicate_node.polytope.b) # bring polytope to suitable dimension
+            task : AlwaysTask | EventuallyTask
             # Create barrier functions for each task
+            
             if varphi_type == "G" :
 
-                # Create barrier function.
-                barrier : BarrierFunction  = BarrierFunction(polytope)
-                barrier.task_type          = varphi_type
-                
-                ## Given initial guess to the solver
-                barrier.alpha_var.value = time_interval.a
-                barrier.beta_var.value  = time_interval.b
+                self.varphi_tasks += [varphi] # add the varphi task to the list of tasks
+                task              = AlwaysTask(polytope,time_interval)
+                self.tasks_list   += [task]
 
-                # save interval uncertainity for conflicting conjunction detection
-                barrier.interval_satisfaction = time_interval
-                
-                # add barrier to the list
-                barriers.append(barrier)
-                
                 # create time constraints
-                time_constraints += [barrier.alpha_var == time_interval.a, barrier.beta_var == time_interval.b]
+                self.time_constraints += [task.alpha_var == time_interval.a, task.beta_var == time_interval.b]
                 
-                # add tasks to the list for plotting
-                start_time = time_interval.a
-                duration   =  time_interval.b - start_time
-                self.task_durations.append({'start_time': start_time, 'duration': duration, 'type': varphi_type})
+                # good initial guess 
+                task.alpha_var.value = time_interval.a
+                task.beta_var.value  = time_interval.b
 
-                self._varphi_formulas += [varphi]
-
+            
             elif varphi_type == "F" :
-
-                # Create barrier function.
-                barrier : BarrierFunction  = BarrierFunction(polytope)
-                barrier.task_type          = varphi_type
                 
+                self.varphi_tasks += [varphi] # add the varphi task to the list of tasks
+                task               = EventuallyTask(polytope, time_interval=time_interval)
+                self.tasks_list   += [task]
+
                 ## Give initial guess to the solver
-                barrier.alpha_var.value = time_interval.a
-                barrier.beta_var.value  = time_interval.a
+                task.beta_var.value = time_interval.a
 
-                # save interval uncertainity for conflicting conjunction detection
-                barrier.interval_satisfaction = time_interval
-                
-                # add barrier to the list
-                barriers.append(barrier)
-                
+            
                 # create time constraints
-                time_constraints += [barrier.alpha_var >= time_interval.a, 
-                                    barrier.beta_var   == barrier.alpha_var,
-                                    barrier.beta_var   <= time_interval.b]
+                self.time_constraints += [task.beta_var >= time_interval.a, 
+                                          task.beta_var <= time_interval.b]
                 
-                # add tasks to the list for plotting
-                start_time = time_interval.a
-                duration   =  (time_interval.b - start_time) + 0.001 # just for plotting added a o.1 to make singleton intervals visible
-                self.task_durations.append({'start_time': start_time, 'duration': duration, 'type': varphi_type})
-
-                self._varphi_formulas += [varphi]
-
 
             elif varphi_type == "FG":
 
-
-                time_interval_prime : TimeInterval    = root.children[0].interval # extract interval of the operator G
-
-                # Create barrier function.
-                barrier : BarrierFunction  = BarrierFunction(polytope)
-                barrier.task_type          = varphi_type
+                G_operator          : GOp             = root.children[0]
+                time_interval_prime : TimeInterval    = G_operator.interval # extract interval of the operator G
                 
+                self.varphi_tasks += [varphi] # add the varphi task to the list of tasks
+                task               = AlwaysTask(polytope,
+                                                time_interval= time_interval,
+                                                secondary_time_interval= time_interval_prime)
+                self.tasks_list   += [task]
+
                 ## Give initial guess to the solver
-                barrier.alpha_var.value = time_interval.get_sample() + time_interval_prime.a
-                barrier.beta_var.value  = barrier.alpha_var.value + (time_interval_prime.b - time_interval_prime.a)
+                task.alpha_var.value = time_interval.get_sample() + time_interval_prime.a
+                task.beta_var.value  = task.alpha_var.value + (time_interval_prime.b - time_interval_prime.a)
 
-                # save interval uncertainity for conflicting conjunction detection
-                barrier.interval_satisfaction = time_interval
-                
-                # add barrier to the list
-                barriers.append(barrier)
-                
                 # create time constraints
-                time_constraints += [barrier.alpha_var >= time_interval.a +  time_interval_prime.a, 
-                                    barrier.alpha_var <= time_interval.b +  time_interval_prime.a,
-                                    barrier.beta_var  == barrier.alpha_var + (time_interval_prime.b - time_interval_prime.a)]
-                
-    
-                start_time = time_interval.a + time_interval_prime.a
-                duration   =  (time_interval.b  + time_interval_prime.b) - start_time
-                self.task_durations.append({'start_time': start_time, 'duration': duration, 'type': varphi_type})    
-                
-                # these are needed to detect a possible conflicting conjuntion
-                barrier._a_prime = time_interval_prime.a
-                barrier._b_prime = time_interval_prime.b
-
-                self._varphi_formulas += [varphi]
+                self.time_constraints += [task.alpha_var >= time_interval.a +  time_interval_prime.a, 
+                                          task.alpha_var <= time_interval.b +  time_interval_prime.a,
+                                          task.beta_var  == task.alpha_var + (time_interval_prime.b - time_interval_prime.a)]
+            
 
 
             elif varphi_type == "GF" : # decompose
+                
                 g_interval : TimeInterval = root.interval
                 f_interval : TimeInterval = root.children[0].interval # the single children of the always operator is the eventually
 
@@ -416,79 +393,137 @@ class TasksOptimizer:
                     # keep order of defitiion as a_w_bar gets redefined
                     b_bar_w = m + w* 1        * interval_prime
                     a_bar_w = m + w* delta_bar* interval_prime
-
-                    self._varphi_formulas += [ FOp(a = a_bar_w,b = b_bar_w) >> Predicate(polytope= predicate_node.polytope,dims = predicate_node.dims, name = predicate_node.name) ]
-                    
                     interval_w = TimeInterval(a = a_bar_w, b = b_bar_w)
-                    # Create barrier function.
-                    barrier : BarrierFunction  = BarrierFunction(polytope)
-                    barrier.task_type          = "F" # change type to eventually
-                    
-                    ## Give initial guess to the solver
-                    barrier.alpha_var.value =  interval_w.get_sample() 
-                    barrier.beta_var.value  =  barrier.alpha_var.value
 
-                    # save interval uncertainity for conflicting conjunction detection
-                    barrier.interval_satisfaction = interval_w
-                    
-                    # add barrier to the list
-                    barriers.append(barrier)
-                    
+                    self.varphi_tasks += [varphi] # add the varphi task to the list of tasks
+                    task = EventuallyTask(polytope,time_interval=interval_w)
+                    self.tasks_list   += [task]
+                    task.flag_as_derived_from_always_eventually()
+
+                    ## Give initial guess to the solver (this is just to speed up the solver)
+                    task.beta_var.value =  m + w* delta_bar* interval_prime
+
                     # create time constraints
-                    time_constraints += [barrier.alpha_var >= tau_prev + delta_bar * interval_prime, 
-                                        barrier.alpha_var <= tau_prev  + 1         * interval_prime, 
-                                        barrier.alpha_var == barrier.beta_var]
+                    self.time_constraints += [task.beta_var >= tau_prev + delta_bar * interval_prime, 
+                                              task.beta_var <= tau_prev  + 1         * interval_prime]
                     
-                    tau_prev = barrier.alpha_var.value # this is the link to the previous task.
-    
-                    start_time = a_bar_w
-                    duration   =  (b_bar_w  + a_bar_w)
-                    self.task_durations.append({'start_time': start_time, 'duration': duration, 'type': "F"})    
+                    tau_prev = task.beta_var # this is the link to the previous task.
                     
             else:
                 raise ValueError("At least one of the formulas set in conjunction is not within the currently allowed grammar. Please verify the predicates in the formula.")
 
-    
-    
+
+    def active_tasks_map(self,t: float) -> list[int]:
+        """
+        Returns the list of indices of active barriers at time t.
+        """
+
+        if self.already_optimized :
+            active_tasks : list[int] = []
+            for i, task in enumerate(self.tasks_list):
+                if  t < task.beta_var.value:
+                    active_tasks.append(i)
+        else:
+            raise ValueError("The tasks have not been optimized yet. Please optimize the tasks first.")
+
         
+        return active_tasks
+    
+
+
+    def show_time_schedule(self) :
+        
+        tasks_schedules = []
+        for i, task in enumerate(self.tasks_list):
+             # add tasks to the list for plotting
+            start_time = task.time_interval.a
+            duration   =  task.time_interval.b - start_time
+            varphi_type = "G" if isinstance(task, AlwaysTask) else "F"
+            if isinstance(task, EventuallyTask) and task.derived:
+                tasks_schedules.append({'start_time': start_time, 'duration': duration, 'type': varphi_type,"derived": True})
+            else:
+                tasks_schedules.append({'start_time': start_time, 'duration': duration, 'type': varphi_type,"derived": False})
+
+
+
         print("============================================================")
         print("Enumerating tasks")
         print("============================================================")
         
-        for task in self.task_durations:
+        for task in tasks_schedules:
 
             print("Found Tasks of type: ", task["type"])
             print("Start time: ", task["start_time"])
             print("Duration: ", task["duration"])
+            if task["derived"]:
+                print("(note*) Derived from an always-eventually task")
             print("---------------------------------------------")
 
 
-        print("====== Enumeration completed =============================================")
+        # plotting 
+        fig, ax = plt.subplots(figsize=(10, 4))
 
-        self._barriers         = barriers
-        self._time_constraints = time_constraints
-        print("========= Cheking for possible conflicting conjuncitons ==================")
-        self.detect_conflicting_conjunctions_and_give_good_time_guesses()
+        # Plot each task as a thin bar on its own y-row
+        for i, schedule in enumerate(tasks_schedules):
+            ax.broken_barh([(schedule["start_time"], schedule["duration"])], (i - 0.4, 0.8), facecolors='tab:blue')
+
+        # Labeling
+        ax.set_xlabel('Time')
+        ax.set_ylabel("tasks")
+        ax.set_yticks(range(len(tasks_schedules)))
+        ax.set_yticklabels([rf'\phi =  {schedule["type"]}  \mu' for schedule  in tasks_schedules])
+        ax.grid(True)
+
 
     
+
     
-    def distace_between_polytopes(self,barrier_1 : BarrierFunction, barrier_2: BarrierFunction):
+    def plot_active_set_map_cardinality(self) -> None:
         """
-        Use cvxpy to computer the distance between two polytopes inside two barrier functions"
+        Plot the result gamma functions for each task
+        """
+
+        if self.already_optimized:
+            max_beta = 0.
+            for task in self.tasks_list:
+                max_beta = max(max_beta,task.beta_var.value)
+            # plot the cardinality of the active set map
+            fig, ax = plt.subplots(figsize=(10, 4))
+            t = np.linspace(0, max_beta, int(max_beta*100))
+            card = []
+            for time in t:
+                card += [len(self.active_tasks_map(time))]
+            
+            ax.plot(t, card, label='Cardinality of Active Set')
+            ax.grid()
+            ax.set_xlabel("Time")
+            ax.set_ylabel("Number of active tasks")
+
+            
+            plt.tight_layout()
+        else:
+            pass
+
+    
+
+    
+    def distance(self,p1:Polyhedron, p2: Polyhedron):
+        """
+        Use cvxpy to computer the distance between two polytopes inside two polytopes"
         """
 
         x = cp.Variable((self.system.size_state))
         y = cp.Variable((self.system.size_state))
 
-        A1,b1 = barrier_1.polytope.A, barrier_1.polytope.b
-        A2,b2 = barrier_2.polytope.A, barrier_2.polytope.b
+        A1,b1 = p1.A, p1.b
+        A2,b2 = p2.A, p2.b
 
         constraints = [A1@x <= b1, A2@y <= b2]
         cost        = cp.sum_squares(x-y)
         problem     = cp.Problem(cp.Minimize(cost), constraints)
         
         
-        problem.solve("SCS", verbose=True)
+        problem.solve("SCS", verbose=False)
         if problem.status != cp.OPTIMAL:
             raise Exception("Problem not solved correctly. Retuned problem status is " + str(problem.status))
         else:  
@@ -498,60 +533,155 @@ class TasksOptimizer:
     def detect_conflicting_conjunctions_and_give_good_time_guesses(self)-> None :
         """ This check can be expensive if you have many tasks. But it can be useful to avoid problems"""
         
-        always_barriers = [barrier for barrier in self._barriers if barrier.task_type == "G"]
+        
+        always_tasks : list[AlwaysTask] = [task for task in  self.tasks_list if isinstance(task,AlwaysTask) and task.secondary_time_interval is None]
+        eventually_tasks : list[EventuallyTask] = [task for task in  self.tasks_list if isinstance(task,EventuallyTask)]
 
         
-        for barrier in self._barriers:
-            
-            time_interval = barrier.interval_satisfaction
-            if barrier.task_type == "F":
-                for always_barrier in always_barriers:
-                    always_time_interval = always_barrier.interval_satisfaction
-                    
-                    
-                    if time_interval in always_time_interval :
-                        if self.distace_between_polytopes(barrier,always_barrier) < 1E-2: # two separate if to avoid computing the distance condition for nothing
-                            message = (f"Found conflicting conjunctions: A task of type F_[a,b]\mu is conflicting with a task of type G_[a',b']\mu" +
-                                    "The time interval of the eventually is fully contained the the time interval of the always and the predicates have no intersection")
+        # phase 1 (check always-always conflict) : two always tasks must have intersecting predicates
+        for task_i in always_tasks :
+            for task_j in always_tasks :
+                if task_i != task_j:
+
+                    time_interval_i = task_i.time_interval
+                    time_interval_j = task_j.time_interval
+                    pi = task_i.polytope
+                    pj = task_j.polytope
+
+                    if time_interval_i / time_interval_j is not None:
+                        if self.distance(pi,pj) > 0.:
+                            message = (f"Found conflicting conjunctions: A task of type G_[a,b]\mu is conflicting with a task of type G_[a',b']\mu" +
+                                        "The interval of the tasks is intersectinig ")
                             raise Exception(message)
                         
-                        else : # give good initial guess for the eventually to have both alpha and beta outside the always interval (on the right)
-                            
-                            epsilon = 1E-3
-                            barrier.alpha_var.value =  always_time_interval.b + epsilon
-                            barrier.beta_var.value  =  always_time_interval.b + epsilon
-
-            elif barrier.task_type == "G":
-                for always_barrier in always_barriers:
-                    if barrier != always_barrier:
-                        always_time_interval = always_barrier.interval_satisfaction
-                        if (time_interval / always_time_interval) is not None:
-                            if self.distace_between_polytopes(barrier,always_barrier) < 1E-2: # two separate if to avoid computing the distance condition for nothing
-                                message = (f"Found conflicting conjunctions: A task of type G_[a,b]\mu is conflicting with a task of type G_[a',b']\mu" +
-                                        "The interval of the tasks is intersectinig ")
-                                raise Exception(message)
-            
-            elif barrier.task_type == "FG":
-                
-                a_prime = barrier._a_prime
-                b_prime = barrier._b_prime
-
-                for always_barrier in always_barriers:
-                    always_time_interval = always_barrier.interval_satisfaction
-
-                    task_always_starts_in_the_always = (a_prime+time_interval) / always_time_interval is not None
-                    task_always_ends_in_the_always   = (b_prime+time_interval) / always_time_interval is not None
                     
-                    if task_always_starts_in_the_always or task_always_ends_in_the_always:
-                        if self.distace_between_polytopes(barrier,always_barrier) < 1E-2: # two separate if to avoid computing the distance condition for nothing
-                            message = (f"Found conflicting conjunctions: A task of type F_[a,b]G_[a',b']\mu is conflicting with a task of type G_[a_bar,b_bar]\mu" +
-                                        "The time interval of the FG formula is such that the task either always starts in the interval of the always or it always ends in the interval of the always but the two do not have an intersecing predicate")
-                            raise Exception(message)
-                    else : # give good initial guess for the eventually to have both alpha and beta outside the always interval (on the right)
-                        print("here")
-                        barrier.alpha_var.value =  always_time_interval.b + a_prime
-                        barrier.beta_var.value  =  barrier.alpha_var.value + (b_prime - a_prime)
+        # phase 2 (check always-eventually conflict) : if an eventually task is bounded inside an always task then the two must be intersecting     
+        for task_e in eventually_tasks :
+            for task_a in always_tasks :
+                time_interval_e = task_e.time_interval
+                time_interval_a = task_a.time_interval
+                pe = task_e.polytope
+                pa = task_a.polytope
+                
+                # If the eventually time interval is within the always time interval then you will have a conflict
+                if time_interval_e in time_interval_a:
+                    if self.distance(pe,pa) > 0.:
+                        message = (f"Found conflicting conjunctions: A task of type F_[a,b]\mu is conflicting with a task of type G_[a',b']\mu" +
+                                    "The eventually task a time interval contained within an always task but the predicates do not intersect. ")
+                        raise Exception(message)
+                    
+                else : # try to iniitalize the eventually task better
+                    if time_interval_e.a <= time_interval_a.a:
+                        task_e.beta_var.value  = time_interval_e.a 
+                    elif time_interval_e.b >= time_interval_a.b:
+                        task_e.beta_var.value  = time_interval_a.b
+                
+    def make_time_schedule(self) :
+        """
+        From this function, the following tasks are accomplished:
+            1) The given formula is sectioned sub tasks varphi.
+            2) Each task var phi is converted into a barrier function.
+            3) A time schedule for each task by assigning proper satisfaction and conclusion times to each task based on the temporal operators of the task.
+        """
         
+        # create optimization problem 
+
+        cost = 0
+        normalizer = 100.
+        lift_up_factor = 1000.
+        
+        time_instants      = [ task.alpha_var.value for task in self.tasks_list if hasattr(task,"alpha_var")] + [task.beta_var.value for task in self.tasks_list]
+        time_instants_vars = [ task.alpha_var for task in self.tasks_list if hasattr(task,"alpha_var")] + [task.beta_var for task in self.tasks_list]
+        
+        # Zip and sort based on time_instants
+        sorted_pairs = sorted(zip(time_instants, time_instants_vars), key=lambda pair: pair[0])
+
+        # Extract sorted time_instants_vars
+        sorted_time_instants_vars = [var for _, var in sorted_pairs]
+        
+        for jj in range(len(sorted_time_instants_vars)-1):
+            cost += lift_up_factor * cp.exp(-(sorted_time_instants_vars[jj+1] - sorted_time_instants_vars[jj])/normalizer)
+                    
+
+        problem = cp.Problem(cp.Minimize(cost),  self.time_constraints)
+        problem.solve(warm_start=True, verbose=False, solver=cp.MOSEK)
+        print("===========================================================")
+        print("Times Schedule completed")
+        print("===========================================================")
+        print("Number of tasks created: ", len(self.tasks_list))
+        print("Times optimization status: ", problem.status)
+        
+        print("Listing alpha and beta values per task :")
+        for task in self.tasks_list:  
+            if isinstance(task,AlwaysTask):
+                print("Operator   : ", "Always")
+                print("Time alpha : ", task.alpha_var.value)
+                print("Time beta  : ", task.beta_var.value)
+                print("-----------------------------------------------------")
+            else:
+                print("Operator   : ", "Eventually")
+                print("Time tau   : ", task.beta_var.value)
+                if task.derived:
+                    print("(note*) Derived from an always-eventually task")
+                print("-----------------------------------------------------")
+
+        
+        self.already_optimized = True
+
+
+class BarriersOptimizer:
+    
+    def __init__(self, tasks_list  : list[AlwaysTask|EventuallyTask], 
+                       workspace   : Polyhedron, 
+                       system      : ContinuousLinearSystem,
+                       input_bound : Polyhedron ,
+                       x_0         : np.ndarray,
+                       minimize_robustness : bool = True,
+                       k_gain   : float = -1.) -> None:
+        
+        self.tasks_list        : list[AlwaysTask|EventuallyTask] = tasks_list
+        self.workspace         : Polyhedron                      = workspace
+        self.system            : ContinuousLinearSystem          = system
+        self.input_bounds      : Polyhedron                      = input_bound
+        self.x_0               : np.ndarray                      = x_0
+        self.minimize_r        : bool                            = minimize_robustness
+        self.given_k_gain      :float                            = k_gain
+
+        self.barriers                          : list[BarrierFunction]       = []
+        self.time_varying_polytope_constraints : list[TimeVaryingConstraint] = []
+
+        list_of_switches = list({ float(task.alpha_var.value) for task in self.tasks_list if hasattr(task,"alpha_var")} | { float(task.beta_var.value) for task in self.tasks_list} | {0.} )
+        additional_switches = []
+        # add point in between every pair of points
+        for jj in range(len(list_of_switches)-1):
+            if list_of_switches[jj] != list_of_switches[jj+1]:
+                additional_switches += [list_of_switches[jj] + (list_of_switches[jj+1] - list_of_switches[jj])/2]
+
+        self.time_grid = sorted(list_of_switches+ additional_switches )
+        
+        if workspace.is_open:
+            raise ValueError("The workspace is an open Polyhedron. Please provide a closed polytope")
+        
+        self.create_barriers()
+        self.optimize_barriers()
+        
+
+    def create_barriers(self) :
+        """
+        From this function, the following tasks are accomplished:
+            1) The given formula is sectioned sub tasks varphi.
+            2) Each task var phi is converted into a barrier function.
+        """
+
+   
+        for task in self.tasks_list:
+            time_grid_barrier = [time for time in self.time_grid if  time <= task.beta_var.value]
+            if hasattr(task,"alpha_var"):
+                barrier = BarrierFunction(polytope = task.polytope, time_grid = time_grid_barrier, flat_time = task.alpha_var.value)
+            else:
+                barrier = BarrierFunction(polytope = task.polytope, time_grid = time_grid_barrier, flat_time = task.beta_var.value)
+
+            self.barriers.append(barrier)
 
     
     def _make_high_order_corrections(self, system : ContinuousLinearSystem, k_gain : cp.Parameter) -> int:
@@ -590,7 +720,7 @@ class TasksOptimizer:
         print("================================================")
         print("Correcting barriers for high order systems")
         print("================================================")
-        for barrier in self._barriers :
+        for barrier in self.barriers :
             D = barrier.D
             c = barrier.c
             right_order  = False
@@ -622,119 +752,42 @@ class TasksOptimizer:
             
         return order
 
-    def make_time_schedule(self) :
-        """
-        From this function, the following tasks are accomplished:
-            1) The given formula is sectioned sub tasks varphi.
-            2) Each task var phi is converted into a barrier function.
-            3) A time schedule for each task by assigning proper satisfaction and conclusion times to each task based on the temporal operators of the task.
-        """
 
-        self._create_barriers_and_time_constraints()
-        
-        # create optimization problem 
-
-        cost = 0
-        normalizer = 1000.
-        lift_up_factor = 10.
-        for barrier_i in self._barriers:
-            for barrier_j in self._barriers:
-                
-                if barrier_i != barrier_j:
-                    # give cost based on the guessed ordering of the tasks: we want to maximazie distance between each point.
-                    # In order to do so we
-                    if barrier_i.alpha_var.value >= barrier_j.alpha_var.value :
-                        cost += lift_up_factor*cp.exp(-(barrier_i.alpha_var - barrier_j.alpha_var)/normalizer)
-                    
-
-        problem = cp.Problem(cp.Minimize(cost), self._time_constraints)
-        problem.solve(warm_start=True, verbose=False, solver=cp.SCS)
-        print("===========================================================")
-        print("Times Schedule completed")
-        print("===========================================================")
-        print("Number of barrier functions created: ", len(self._barriers))
-        print("Times optimization status: ", problem.status)
-        
-        print("Listing alpha and beta values per task :")
-        for barrier in self._barriers:  
-            print("Operator      : ", barrier.task_type)
-            print("Barrier alpha : ", barrier.alpha_var.value)
-            print("Barrier beta  : ", barrier.beta_var.value)
-            print("-----------------------------------------------------")
-
-    
     def active_barriers_map(self,t: float) -> list[int]:
         """
         Returns the list of active barriers at time t.
         """
         active_barriers = []
-        for i, barrier in enumerate(self._barriers):
-            if barrier.beta > t:
+        for i, barrier in enumerate(self.barriers):
+            beta = barrier.time_grid[-1]
+            if  t < beta :
                 active_barriers.append(i)
         return active_barriers
     
-    
-    def plot_time_schedule(self) -> None:
-        
-        
-               
-        fig, ax = plt.subplots(figsize=(10, 4))
 
-        # Plot each task as a thin bar on its own y-row
-        for i, task in enumerate(self.task_durations):
-            ax.broken_barh([(task["start_time"], task["duration"])], (i - 0.4, 0.8), facecolors='tab:blue')
-
-        # Labeling
-        ax.set_xlabel('Time')
-        ax.set_ylabel("tasks")
-        ax.set_yticks(range(len(self.task_durations)))
-        ax.set_yticklabels([rf'\phi =  {task["type"]}  \mu' for task in self.task_durations])
-        ax.grid(True)
-
-
-        max_beta = 0.
-        for barrier in self._barriers:
-            max_beta = max(max_beta,barrier.beta)
-        
-        # plot the cardinality of the active set map
-        fig, ax = plt.subplots(figsize=(10, 4))
-        t = np.linspace(0, max_beta, int(max_beta*100))
-        card = []
-        for time in t:
-            card += [len(self.active_barriers_map(time))]
-        
-        ax.plot(t, card, label='Cardinality of Active Set')
-        
-        plt.tight_layout()
-
-    
-    def optimize_barriers(self, input_bounds: Polyhedron , x_0 : np.ndarray, minimize_robustness = True, base_line_number_of_switching_times :int = 10) :
+    def optimize_barriers(self) :
         
         
-        if input_bounds.is_open:
+        if self.input_bounds.is_open:
             raise ValueError("The input bounds are an open Polyhedron. Please provide a closed polytope")
         
-        if input_bounds.num_dimensions != self.system.size_input:
+        if self.input_bounds.num_dimensions != self.system.size_input:
             raise ValueError("The input bounds polytope must be in the same dimension as the system input. Given input bounds are in dimension " +
-                             str(input_bounds.num_dimensions) + ", while the system input dimension is " + str(self.system.size_input))
+                             str(self.input_bounds.num_dimensions) + ", while the system input dimension is " + str(self.system.size_input))
         
         if not isinstance(self.system, ContinuousLinearSystem):
             raise ValueError("The system must be a ContinuousLinearSystem.")
         
-        x_0 = x_0.flatten()
-        if len(x_0) != self._workspace.num_dimensions:
+        x_0 = self.x_0.flatten()
+        if len(x_0) != self.workspace.num_dimensions:
             raise ValueError("The initial state must be a vector of the same dimension as the workspace.")
 
         
-        vertices        = self._workspace.vertices.T # matrix [dim x,num_vertices]
-        x_dim           = self._workspace.num_dimensions
-        switching_times = { float(np.round(barrier.alpha,2)) for barrier in self._barriers} | { float(np.round(barrier.beta,2)) for barrier in self._barriers} | {0.} # repeated time instants will be counted once in this way
-        
-        max_time     = max(switching_times)
-        time_grid    = set(np.linspace(0, max_time, base_line_number_of_switching_times).tolist())
+        vertices        = self.workspace.vertices.T # matrix [dim x,num_vertices]
+        x_dim           = self.workspace.num_dimensions
+
 
         # integrate the alpha and beta switching times into the time grid (so time steps between switching times will not be homogenous)
-        time_grid  = sorted(list(time_grid | switching_times))
         k_gain     = cp.Parameter(pos=True) #! (when program fails try to increase control input and increase the k_gain. Carefully analyze the situation. Usually it should be at leat equal to 1.)
         order      = self._make_high_order_corrections(system = self.system, k_gain = k_gain)
         
@@ -742,16 +795,16 @@ class TasksOptimizer:
         A = self.system.A
         B = self.system.B
         slack         = cp.Variable(nonneg = True)
-        slack_penalty = 1E6
+        slack_penalty = 1E8
 
         constraints  :list[cp.Constraint]  = []
 
         # dynamic constraints
-        for jj in range(len(time_grid)-1): # for each interval
+        for jj in range(len(self.time_grid)-1): # for each interval
             
             # Get two consecutive time intervals in the sequence.
-            s_j        = time_grid[jj]
-            s_j_plus_1 = time_grid[jj+1]
+            s_j        = self.time_grid[jj]
+            s_j_plus_1 = self.time_grid[jj+1]
 
             # Create vertices set. 
             s_j_vec        = np.array([s_j for i in range(vertices.shape[1])]) # column vector
@@ -762,16 +815,14 @@ class TasksOptimizer:
             # Input constraints.
             for kk in range(U_j.shape[1]):
                 u_kk = U_j[:,kk]
-                constraints += [input_bounds.A @ u_kk <= input_bounds.b]
+                constraints += [self.input_bounds.A @ u_kk <= self.input_bounds.b]
+            
             # Forward-invariance constraints. 
             for active_task_index in self.active_barriers_map(s_j): # for each active task
-                barrier = self._barriers[active_task_index] 
+                barrier = self.barriers[active_task_index] 
 
-                # set up variables gamma and robustness for the given barrier 
-                barrier.set_variables(switching_times = time_grid)
-
-                e = barrier.e_vectors(s_j) # time derivative of the gamma function for a given section
-                g = barrier.g_vectors(s_j) # gamma function for a given section
+                e = barrier.e_vector(s_j) # time derivative of the gamma function for a given section
+                g = barrier.g_vector(s_j) # gamma function for a given section
                 
                 c = barrier.c
                 D = barrier.D
@@ -782,132 +833,144 @@ class TasksOptimizer:
 
                     eta_ii_not_time     = eta_ii[:-1]
                     time                = eta_ii[-1]
-
                     dyn                 = (A @ eta_ii_not_time + B @ u_ii) 
 
-                    D_high_order = barrier.D_high_order
-                    c_high_order = barrier.c_high_order
-
+                    D_high_order        = barrier.D_high_order
+                    c_high_order        = barrier.c_high_order
                     constraints        += [D_high_order @ dyn + e + k_gain * (D_high_order @ eta_ii_not_time + e*time + c_high_order + g ) + slack>= 0]
-                
+                    
 
-                # add robustness constraint when necessary
-                if s_j>= barrier.alpha_var.value: # you are inside [alpha,beta]
-                    index   = barrier.get_index_of_containing_interval(s_j)
-                    gamma_j = barrier.gamma_0_var[:,index]
-                    constraints += [gamma_j == barrier.r_var] 
-        
-
-        # add decaying gamma constraint for each barrier
-        for barrier in self._barriers:
-            constraints += barrier.get_decaying_gamma_constraints()
+        # Add flatness constraint
+        for barrier in self.barriers:
+            constraints += barrier.get_gamma_flat_constraint()
 
         # Inclusion constraints
-        betas        = list({ barrier.beta for barrier in self._barriers} | {0.}) # set inside the list removes duplicates if any.
+        betas        = list({ barrier.time_grid[-1] for barrier in self.barriers}) # set inside the list removes duplicates if any.
         betas        = sorted(betas)
+        
+        epsilon = 1E-1 
         zeta_vars    = cp.Variable(( x_dim, len(betas)))
-
         # Impose zeta vars in the workspace
         for kk in range(1,zeta_vars.shape[1]):
             zeta_kk       =  zeta_vars[:,kk]
-            constraints  += [self._workspace.A @ zeta_kk <= self._workspace.b]
-            
+            constraints  += [self.workspace.A @ zeta_kk <= self.workspace.b]
+        
+
         for l in range(1,len(betas)):
             beta_l = betas[l]
             zeta_l = zeta_vars[:,l]
 
             for l_tilde in self.active_barriers_map(betas[l-1]) : # barriers active at lim t-> - beta_l is equal to the one active at time beta_{l-1}
                 
-                e = self._barriers[l_tilde].e_vectors(beta_l)
-                g = self._barriers[l_tilde].g_vectors(beta_l)
-                D = self._barriers[l_tilde].D  
-                c = self._barriers[l_tilde].c
+                e = self.barriers[l_tilde].e_vector(beta_l-0.001)
+                g = self.barriers[l_tilde].g_vector(beta_l-0.001)
+                D = self.barriers[l_tilde].D  
+                c = self.barriers[l_tilde].c
 
-                constraints += [D @ zeta_l + e * beta_l + c + g >= 0]
+                constraints += [D @ zeta_l + e * beta_l + c + g >= epsilon ] # epsilon just to make sure the point is not at the boundary and it is strictly inside
         
         # set the zeta at beta=0 zero and conclude
         # initial state constraint
-        zeta_0  = zeta_vars[:,0]
-        epsilon = 3E-1 # just to be strictly inside
-        for barrier in self._barriers:
+        
+        zeta_0  = cp.Variable(x_dim,)
+        for barrier in self.barriers:
             # at time beta=0 all tasks are active and they are in the first linear section of gamma
             
-            e = barrier.e_vectors(0.)
-            g = barrier.g_vectors(0.)
+            e = barrier.e_vector(0.)
+            g = barrier.g_vector(0.)
             c = barrier.c
             D = barrier.D
 
-            constraints += [D @ zeta_0 + e*0 + c + g >= epsilon] # constraint at time 0
+            constraints += [D @ zeta_0 + e*0 + c + g >= epsilon] # constraint at time 0 (epsilon just to be strictly inside)
         
         # initial state constraint
         constraints += [zeta_0 == x_0]
 
         # create problem and solve it
-        cost = 0
-        if minimize_robustness:
-            for barrier in self._barriers:
-                cost += -cp.sum(barrier.r_var)
+        cost = 0.
+        if self.minimize_r:
+            for barrier in self.barriers:
+                cost      +=  10000*cp.exp(-cp.sum(barrier.r_var)/1000)
+                slack_cost = slack_penalty * slack
+                problem    = cp.Problem(cp.Minimize(cost+slack_cost), constraints)
         else:
-            for barrier in self._barriers:
-                cost += -cp.sum(barrier.gamma_0_var)
+            for barrier in self.barriers:
+                slack_cost = slack_penalty * slack
+                problem    = cp.Problem(cp.Minimize(cost+slack_cost), constraints)
 
+
+        if self.given_k_gain < 0.:
+            good_k_found = False
+
+            print("Selecting a good gain k ...")
+            # when barriers have order highr than 1, the problem is no more dpp and thus it takes a lot of time to solve it.
+            if order > 1:
+                k_vals = np.arange(0.000001, 0.5, 0.03)
+            else :
+                k_vals = np.arange(0.001, 1, 0.003)
             
-        slack_cost = slack_penalty * slack
-        problem = cp.Problem(cp.Minimize(cost+slack_cost), constraints)
-        good_k_found = False
+            best_k    = k_vals[0]
+            best_slak = 1E10
+            # Parallelize using multiprocessing
+            with tqdm(total=len(k_vals)) as pbar:
+                for k_val in k_vals:
+                    pbar.set_description(f"k = {k_val:.3f}")
+                    k_gain.value = k_val
+                    
+                    try :
+                        problem.solve(warm_start=True, verbose=False,solver="MOSEK")
+                        pbar.update(1)
+                    except :
+                        pbar.update(1)
+                        continue
+                    if problem.status == cp.OPTIMAL and slack.value < 1E-5:
+                        best_k = k_val
+                        good_k_found = True
+            
 
+                    elif problem.status == cp.OPTIMAL and slack.value > 1E-5 and not good_k_found:
+                        if slack.value <= best_slak :
+                            best_slak = slack.value
+                            best_k    = k_val 
+                    else :
+                        continue
+                
 
-        print("Selcting a good gain k ...")
-        # when barriers have order highr than 1, the problem is no more dpp and thus it takes a lot of time to solve it.
-        if order > 1:
-            k_vals = np.arange(0.01, 0.5, 0.03)
-        else :
-            k_vals = np.arange(0.01, 100, 0.03)
-        
-        best_k    = k_vals[0]
-        best_slak = 1E10
-        # Parallelize using multiprocessing
-        with tqdm(total=len(k_vals)) as pbar:
-            for k_val in k_vals:
-                pbar.set_description(f"k = {k_val:.3f}")
-                k_gain.value = k_val
-        
+            if not good_k_found:
+                print("No good k found. Please increase the range of k. Returing k with minimum violation")
+                k_gain.value = best_k
                 problem.solve(warm_start=True, verbose=False,solver="MOSEK")
-                pbar.update(1)
-                if problem.status == cp.OPTIMAL and slack.value < 1E-5:
-                    best_k = k_val
-                    good_k_found = True
-                    break
+            else:
+                k_gain.value = best_k
+                problem.solve(warm_start=True, verbose=False,solver="MOSEK")
+        else:
+            print("Given k_gain:",self.given_k_gain)
+            k_gain.value = self.given_k_gain
 
-                elif problem.status == cp.OPTIMAL and slack.value > 1E-5:
-                    if slack.value <= best_slak :
-                        best_slak = slack.value
-                        best_k    = k_val 
-                else :
-                    continue
-               
-
-        if not good_k_found:
-            print("No good k found. Please increase the range of k. Returing k with minimum violation")
-            k_gain.value = best_k
-            problem.solve(warm_start=True, verbose=False,solver="MOSEK")
+            try :
+                problem.solve(warm_start=True, verbose=False,solver="MOSEK")
+            except Exception as e :
+                print(f"Error in solving the problem with given k_gain {self.given_k_gain}. The error is the following")
+                raise e
 
         print("===========================================================")
         print("Barrier functions optimization result")
         print("===========================================================")
         print("Status                         : ", problem.status)
         print("Solver time                    : ", problem.solver_stats.solve_time)
-        print("number of variables            : ", sum(var.size for var in problem.variables()))
+        print("Number of variables            : ", sum(var.size for var in problem.variables()))
         print("Optimal Cost (expluding slack) :" , cost.value)
         print("Maximum Slack violation        : ", slack.value)
-        print('Robustness                     : ', min( np.min(barrier.r_var.value) for barrier in self._barriers))
+        print('Robustness                     : ', min( np.min(barrier.r_var.value) for barrier in self.barriers))
+        print('K gain                         : ', k_gain.value)
         print("-----------------------------------------------------------")
         print("Listing parameters per task")
 
-        for barrier in self._barriers:
-            print("Operator        : ", barrier.task_type)
-            print("Barrier alpha   : ", barrier.alpha_var.value)
-            print("Barrier beta    : ", barrier.beta_var.value)
+        for task,barrier in zip(self.tasks_list,self.barriers) :
+            print("Task Type       :", "Eventually" if isinstance(task,EventuallyTask) else "Always")
+            print("Task Interval   :", task.time_interval)
+            if isinstance(task,EventuallyTask):
+                print("Task tau        :", task.beta_var.value)
             print("Barrier gamma_0 : ", barrier.gamma_0_var.value)
             print("Barrier r       : ", barrier.r_var.value)
             print("---------------------------------------------------")
@@ -917,18 +980,18 @@ class TasksOptimizer:
             exit()
         
         # saving constraints as time_state constraints
-        for barrier in self._barriers:
+        for barrier in self.barriers:
             D = barrier.D
             c = barrier.c
 
-            for time_interval in barrier.sequence_of_time_intervals :
+            for jj,time in enumerate(barrier.time_grid[:-1]) :
+                
+               
+                e = barrier.e_vector(time).value
+                g = barrier.g_vector(time).value
 
-            
-                e = barrier.e_vectors(time_interval.a).value
-                g = barrier.g_vectors(time_interval.a).value
-    
-                start = time_interval.a
-                end = time_interval.b
+                start = barrier.time_grid[jj]
+                end   = barrier.time_grid[jj+1]
                 
                 H = np.hstack((D,e[:,np.newaxis]))
                 b =  c + g
@@ -936,29 +999,50 @@ class TasksOptimizer:
                 # convert from the form Hx + c >= 0 to Hx <= b
                 H = -H
                 
-                if np.abs((end-start))<= 1E-5: # avoid inserting the polytope if the interval of time is very small
-                    self._time_varying_polytope_constraints += [TimeVaryingConstraint(start_time=start, end_time=end, H=H, b=b)] # the second part of the constraint it is just flat so we can remove it.
-            
+                if np.abs((end-start))>= 1E-5: # avoid inserting the polytope if the interval of time is very small
+                    self.time_varying_polytope_constraints += [TimeVaryingConstraint(start_time=start, end_time=end, H=H, b=b)] # the second part of the constraint it is just flat so we can remove it.
 
         return problem.solver_stats
-
     
+
+    def plot_gammas(self) -> None:
+        fig, ax = plt.subplots(figsize=(10, 4))
+        
+        # Number of colors you want
+        num_colors = len(self.barriers)
+        # Get the Viridis colormap
+        cmap = plt.get_cmap("tab10")
+        # Pick random values between 0 and 1
+        colors = [cmap(val) for val in np.linspace(0, 1, num_colors)]
+
+
+        for jj,barrier in enumerate(self.barriers):
+            barrier.plot_gamma(ax,c=colors[jj], label = fr"$\gamma(t)_{jj}$")
+            
+        
+        ax.axhline(0, color='black', linestyle='--', label = "Zero level")
+        ax.set_title("Barrier functions")
+        ax.set_xlabel("Time")
+        ax.set_ylabel(r"$\gamma(t)$")
+        ax.grid()
+        ax.legend()
+
 
     def show_time_varying_level_set(self, ax = None,t_start :float = 0., t_end :float = 1., n_points :int = 10) :
         
         if ax is None:
             fig, ax = plt.subplots(figsize=(10, 4))
-            self._workspace.plot(ax, alpha=0.01) # plot transparent workspace to set the right figure size
+            self.workspace.plot(ax, alpha=0.01) # plot transparent workspace to set the right figure size
         
         # for now only 2d workspaces can be plotted. Extensions will come soon.
-        if self._workspace.num_dimensions != 2:
+        if self.workspace.num_dimensions != 2:
             raise ValueError("The workspace must be in 2D. The current implementation only supports 2D plotting.")
         
         color = np.random.rand(3,)
         for t in np.linspace(t_start, t_end, n_points):
             
             polytopes = []
-            for constrain in self._time_varying_polytope_constraints:
+            for constrain in self.time_varying_polytope_constraints:
                 if t <= constrain.end_time and t >= constrain.start_time:
                     H = constrain.H[:,:-1]
                     b = constrain.b
@@ -976,11 +1060,8 @@ class TasksOptimizer:
                 intersection.plot(ax,alpha=0.1, color = color)
 
             
-
-
-    
-    def get_barrier_as_time_varying_polytopes(self):
-        return self._time_varying_polytope_constraints
+    def get_barrier_as_time_varying_polyhedrons(self):
+        return self.time_varying_polytope_constraints
 
     def save_polytopes(self, filename :str):
         """
@@ -991,27 +1072,66 @@ class TasksOptimizer:
             filename: Output file path (e.g., 'polytopes.json')
         """
         data = []
-        for constraint in self._time_varying_polytope_constraints:
+        for constraint in self.time_varying_polytope_constraints:
             data.append(constraint.as_dict())
         
         with open(filename, 'w') as f:
             json.dump(data, f)
- 
-    def time_predicate_pairs(self) -> list[tuple[float,Polyhedron]]:
-        """ 
-        Returns a list of (time,polytope) pairs specifying at which time a certan predictae (the polytope) should be reached.
-        This list is used inside the RRT algorithm for example to bias the sampling.
-        """
-        
-        polytope_sequence = []
-        for barrier in self._barriers:
-            polytope_sequence += [(barrier.beta,barrier.polytope)]
 
-        return polytope_sequence
 
+
+
+def compute_polyhedral_constraints(formula      : Formula, 
+                                    workspace    : Polyhedron, 
+                                    system       : ContinuousLinearSystem, 
+                                    input_bounds : Polyhedron, 
+                                    x_0          : np.ndarray,
+                                    plot_results : bool = False,
+                                    k_gain       : float = -1.) -> list["TimeVaryingConstraint"]:
+    
+    
+    """
+    :param formula: The formula to be optimized.
+    :type formula: Formula
+    :param workspace: The workspace polytope.
+    :type workspace: Polyhedron
+    :param system: The system to be used for the optimization.
+    :type system: ContinuousLinearSystem
+    :param input_bounds: The input bounds polytope.
+    :type input_bounds: Polyhedron
+    :param x_0: The initial state of the system.
+    :type x_0: np.ndarray
+    
+    """
+
+    
+    scheduler = TaskScheduler(formula, system) # create task optimizer
+
+
+    barrier_optimizer = BarriersOptimizer(tasks_list   = scheduler.tasks_list, 
+                                          workspace    = workspace, 
+                                          system       = system,
+                                          input_bound  = input_bounds,
+                                          x_0          = x_0,
+                                          k_gain       = k_gain)
+    
+    if plot_results :
+        scheduler.show_time_schedule()
+        scheduler.plot_active_set_map_cardinality()
+        barrier_optimizer.plot_gammas()
+    
+    time_varying_constraints : list["TimeVaryingConstraint"] = barrier_optimizer.get_barrier_as_time_varying_polyhedrons()
+    
+    return time_varying_constraints 
             
 
 class TimeVaryingConstraint:
+    """
+        Representation of time-varying constraints in the form of H [x,t]  <= b.
+        The matrix H has dimension (p x dim+1) where p is the number of constraints
+        and dim is the state dimension. The constraint is expressed in space and time.
+    """
+
     def __init__(self, start_time: float, end_time:float, H :np.ndarray, b:np.ndarray):
         
         
@@ -1072,20 +1192,61 @@ class TimeVaryingConstraint:
 
         return polytope
     
-    def plot(self, ax: Optional[plt.Axes] = None) -> None:
+    def plot3d(self, ax: Optional[plt.Axes] = None) -> None:
         """
         Plot the time-varying constraint.
         
         Args:
             ax: Matplotlib Axes object to plot on. If None, create a new figure and axis.
         """
-        if ax is None:
-            fig, ax = plt.subplots()
         
 
         polytope = self.to_polytope()
+        num_dims = polytope.num_dimensions
+
+        if num_dims != 3:
+            raise ValueError("Time-varying constraints can only be plotted in 2D.")
+        
+        if ax is None:
+            fig = plt.figure(figsize=(10, 10))
+            ax = fig.add_subplot(111, projection='3d')
+
         polytope.plot(ax)
         
+        # Set title and labels
+        ax.set_title(f'Time-Varying Constraint [{self.start_time}, {self.end_time}]')
+        ax.set_xlabel('x')
+        ax.set_ylabel('y')
+
+    def plot2d(self, ax: Optional[plt.Axes] = None) -> None:
+        """
+        Plot the time-varying constraint.
+        
+        Args:
+            ax: Matplotlib Axes object to plot on. If None, create a new figure and axis.
+        """
+        
+
+        polytope = self.to_polytope()
+        num_dims = polytope.num_dimensions
+
+        if num_dims != 3:
+            raise ValueError("Time-varying constraints can only be plotted in 2D.")
+        
+        if ax is None:
+            fig,ax = plt.subplots(figsize=(10, 4))
+        
+        for t in np.linspace(self.start_time, self.end_time, 10):
+            e = self.H[:,-1]
+            b = self.b
+            H = self.H[:,:-1]
+            b_t = b - e*t
+            polytope = Polyhedron(H, b_t)
+            # Plot the constraint as a polygon
+            polytope.plot(ax)
+
+        
+
         # Set title and labels
         ax.set_title(f'Time-Varying Constraint [{self.start_time}, {self.end_time}]')
         ax.set_xlabel('x')

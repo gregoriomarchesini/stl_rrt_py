@@ -79,7 +79,8 @@ class ContinuousLinearSystem:
         
     def output_matrix_from_dimension(self,dims:list[int] |int = None):
         """
-        Return the output matrix
+        From a given set of dimensions it returns the selction matrix (output matrix) that selects the elements at the given 
+        dimensions. For example, for a vector of dimension 5, the list dims = [0,2] will return a matrix of size 5x2 that selects the first and third element of the vector.
         """
         if dims is None:
             return self.C

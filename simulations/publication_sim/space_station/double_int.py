@@ -2,9 +2,14 @@ from   matplotlib import pyplot as plt
 import numpy as np
 np.random.seed(3)
 
-from stl_tool.stl                     import GOp, FOp, TasksOptimizer, BoxBound, ContinuousLinearSystem, ISSDeputy,SingleIntegrator3d
+from stl_tool.stl                     import (GOp, 
+                                              FOp, 
+                                              BoxBound, 
+                                              ISSDeputy,
+                                              compute_polyhedral_constraints,
+                                              TimeVaryingConstraint)
 from stl_tool.environment             import Map,ISSModel
-from stl_tool.polyhedron                import Box2d,Box3d,Icosahedron
+from stl_tool.polyhedron              import Box3d,Icosahedron
 
 from stl_tool.planners import StlRRTStar
 from copy import copy
@@ -31,7 +36,7 @@ map.draw(ax, alpha = 0.1) # draw if you want :)
 # system and dynamics
 ##########################################################
 system        = ISSDeputy(dt = 5, )
-max_input     = 1.5
+max_input     = 4
 input_bounds  = Box3d(x = 0.,y = 0.,z=0.,size = max_input*2) 
 
 
@@ -71,21 +76,13 @@ fig,ax = map.draw_formula_predicate(formula = formula, alpha = 0.2)
 x_0       = np.array([-100., 0., -50., 0.,0. , 0.]) # initial state
 map.show_point(x_0, color = 'r', label = 'start') # show start point
 
-scheduler = TasksOptimizer(formula, workspace,system) # create task optimizer
-scheduler.make_time_schedule()                 # create scheduling of the tasks
-# scheduler.plot_time_schedule()               # visualize distribution of tasks time durations :)
-solver_stats = scheduler.optimize_barriers( input_bounds = input_bounds,     # optimize barrier functions
-                                            x_0          = x_0)
-
-# save to file if you want :)
-scheduler.save_polytopes(filename= "test_polytopes")
-
-#########################################################
-# Create RRT solver
-#########################################################
-time_varying_constraints = scheduler.get_barrier_as_time_varying_polytopes()
-# scheduler.show_time_varying_level_set()
-
+time_varying_constraints : list[TimeVaryingConstraint] = compute_polyhedral_constraints(formula      =  formula,
+                                                                                        workspace    = workspace, 
+                                                                                        system       = system,
+                                                                                        input_bounds = input_bounds,
+                                                                                        x_0          = x_0,
+                                                                                        plot_results = True,
+                                                                                        k_gain       = 0.001,)
 
 rrt_planner     = StlRRTStar(start_state     = x_0,
                             system           = system,

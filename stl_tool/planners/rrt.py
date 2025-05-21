@@ -407,7 +407,10 @@ class StlRRTStar :
 
     
     def plan(self):
-        """Run the RRT algorithm to find a path from start to goal with time constraints and barrier function."""
+        """
+        Run the RRT algorithm to find a path from start to goal with time constraints and barrier function.
+        
+        """
         
         self.start_clock_time = time.perf_counter()
         for iteration in tqdm(range(self.max_iter)):
@@ -445,8 +448,19 @@ class StlRRTStar :
             print("Number of nodes: %d"%len(solution["path_trj"]))
             print("Number of iterations: %d"%solution["iter"])
             print("----------------------------------------------")
+        
+        
+        
+        
         if len(self.solutions) == 0:
             print("No solutions found.")
+
+            stats = {"best_sol_cost"        : None,
+                     "best_sol_clock_time"  : None,
+                     "first_sol_cost"       : None,
+                     "first_sol_clock_time" : None}
+            
+
         else:
             best_solution : RRTSolution = min(self.solutions, key=lambda x: x["cost"])
             print("Best solution*:")
@@ -455,9 +469,19 @@ class StlRRTStar :
             print("Best solution number of nodes*: %d"%len(best_solution["path_trj"]))
             print("Best solution number of iterations*: %d"%best_solution["iter"])
             print("=============================================")
+
+
+            stats = {"best_sol_cost"       : best_solution["cost"],
+                     "best_sol_clock_time" : best_solution["clock_time"],
+                     "first_sol_cost"      : self.solutions[0]["cost"],
+                     "first_sol_clock_time" : self.solutions[0]["clock_time"],}
         
         
-        return self.solutions
+        
+        
+        
+        
+        return self.solutions, stats
     
 
     def get_solutions(self):
