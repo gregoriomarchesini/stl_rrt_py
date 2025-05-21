@@ -14,7 +14,8 @@ dependencies = [
   "matplotlib",
   "numpy",
   "pycddlib",
-  "tqdm"
+  "tqdm",
+  "numpy-stl"
 ]
 [tool.setuptools]
 packages = ["stl_tool"]

@@ -1087,7 +1087,8 @@ def compute_polyhedral_constraints(formula      : Formula,
                                     input_bounds : Polyhedron, 
                                     x_0          : np.ndarray,
                                     plot_results : bool = False,
-                                    k_gain       : float = -1.) -> list["TimeVaryingConstraint"]:
+                                    k_gain       : float = -1.,
+                                    polytope_file_name: str = "tvc_polytope.json") -> list["TimeVaryingConstraint"]:
     
     
     """
@@ -1114,6 +1115,7 @@ def compute_polyhedral_constraints(formula      : Formula,
                                           input_bound  = input_bounds,
                                           x_0          = x_0,
                                           k_gain       = k_gain)
+    barrier_optimizer.save_polytopes(polytope_file_name)
     
     if plot_results :
         scheduler.show_time_schedule()
