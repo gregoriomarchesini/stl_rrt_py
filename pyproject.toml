@@ -13,7 +13,8 @@ dependencies = [
   "cvxpy",
   "matplotlib",
   "numpy",
-  "pycddlib"
+  "pycddlib",
+  "tqdm"
 ]
 [tool.setuptools]
 packages = ["stl_tool"]
