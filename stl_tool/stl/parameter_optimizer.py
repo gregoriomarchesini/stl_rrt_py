@@ -653,10 +653,10 @@ class BarriersOptimizer:
         list_of_switches = sorted(list({ float(task.alpha_var.value) for task in self.tasks_list if hasattr(task,"alpha_var")} | { float(task.beta_var.value) for task in self.tasks_list} | {0.} ))
         
         additional_switches = []
-        # add point in between every pair of points
-        for jj in range(len(list_of_switches)-1):
-            if list_of_switches[jj] != list_of_switches[jj+1]:
-                additional_switches += [list_of_switches[jj] + (list_of_switches[jj+1] - list_of_switches[jj])/2]
+        # # add point in between every pair of points
+        # for jj in range(len(list_of_switches)-1):
+        #     if list_of_switches[jj] != list_of_switches[jj+1]:
+        #         additional_switches += [list_of_switches[jj] + (list_of_switches[jj+1] - list_of_switches[jj])/2]
 
         self.time_grid = sorted(list_of_switches+ additional_switches )
         
@@ -850,24 +850,24 @@ class BarriersOptimizer:
         betas        = list({ barrier.time_grid[-1] for barrier in self.barriers}) # set inside the list removes duplicates if any.
         betas        = sorted(betas)
         
-        epsilon = 1.
-        zeta_vars    = cp.Variable(( x_dim, len(betas)))
-        # Impose zeta vars in the workspace
-        for kk in range(1,zeta_vars.shape[1]):
-            zeta_kk       =  zeta_vars[:,kk]
-            constraints  += [self.workspace.A @ zeta_kk <= self.workspace.b]
+        epsilon = 1E-3
+        # zeta_vars    = cp.Variable(( x_dim, len(betas)))
+        # # Impose zeta vars in the workspace
+        # for kk in range(1,zeta_vars.shape[1]):
+        #     zeta_kk       =  zeta_vars[:,kk]
+        #     constraints  += [self.workspace.A @ zeta_kk <= self.workspace.b]
         
-        for l in range(1,len(betas)):
-            beta_l = betas[l]
-            zeta_l = zeta_vars[:,l]
+        # for l in range(1,len(betas)):
+        #     beta_l = betas[l]
+        #     zeta_l = zeta_vars[:,l]
 
-            for l_tilde in self.active_barriers_map(betas[l-1]) : # barriers active at lim t-> - beta_l is equal to the one active at time beta_{l-1}
+        #     for l_tilde in self.active_barriers_map(betas[l-1]) : # barriers active at lim t-> - beta_l is equal to the one active at time beta_{l-1}
                 
-                gamma_at_beta_l = self.barriers[l_tilde].gamma_at_time(beta_l-0.001) # gamma function for a given section
-                D               = self.barriers[l_tilde].D  
-                c               = self.barriers[l_tilde].c
+        #         gamma_at_beta_l = self.barriers[l_tilde].gamma_at_time(beta_l-0.001) # gamma function for a given section
+        #         D               = self.barriers[l_tilde].D  
+        #         c               = self.barriers[l_tilde].c
 
-                constraints += [D @ zeta_l + c +  gamma_at_beta_l >= epsilon ] # epsilon just to make sure the point is not at the boundary and it is strictly inside
+        #         constraints += [D @ zeta_l + c +  gamma_at_beta_l >= epsilon ] # epsilon just to make sure the point is not at the boundary and it is strictly inside
         
         # set the zeta at beta=0 zero and conclude
         # initial state constraint

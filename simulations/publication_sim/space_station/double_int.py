@@ -19,7 +19,7 @@ from copy import copy
 # Create work space and mapo
 ##########################################################
 position_box_halfsize  = 130
-velocity_box_halfsize = 0.8
+velocity_box_halfsize  = 0.25
 position_workspace = Box3d(x = 0,y = 0, z= 0, size = 2*position_box_halfsize) 
 velocity_workspace = Box3d(x = 0,y = 0, z= 0, size = 2*velocity_box_halfsize)
 
@@ -37,7 +37,7 @@ map.draw(ax, alpha = 0.1) # draw if you want :)
 ##########################################################
 # system and dynamics
 ##########################################################
-system        = ISSDeputy(dt = 8, )
+system        = ISSDeputy(dt = 5, )
 max_input     = 1.5
 input_bounds  = Box3d(x = 0.,y = 0.,z=0.,size = max_input*2) 
 
@@ -87,7 +87,7 @@ time_varying_constraints : list[TimeVaryingConstraint] = compute_polyhedral_cons
                                                                                         input_bounds = input_bounds,
                                                                                         x_0          = x_0,
                                                                                         plot_results = True,
-                                                                                        k_gain       = 0.001,)
+                                                                                        k_gain       = 0.070,)
 
 rrt_planner     = StlRRTStar(start_state     = x_0,
                             system           = system,
@@ -95,7 +95,7 @@ rrt_planner     = StlRRTStar(start_state     = x_0,
                             stl_constraints  = time_varying_constraints ,
                             map              = map,
                             max_input        = max_input,
-                            max_iter         = 500,
+                            max_iter         = 1000,
                             space_step_size  = 5,
                             rewiring_radius  = 25,
                             rewiring_ratio   = 5,
