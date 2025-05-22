@@ -65,13 +65,11 @@ visit_time3              = 5000.
 visit_period             = 400
 
 
-# formula        = ((FOp(visit_time1,visit_time1+ visit_period/4) >> (GOp(0, visit_period) >> box_predicate_1))  & 
-#                   (FOp(visit_time2,visit_time2+ visit_period/4) >> (GOp(0, visit_period) >> box_predicate_2))  &  
-#                   (FOp(visit_time4,visit_time4+ visit_period/4) >> (GOp(0, visit_period) >> box_predicate_4))  & 
-#                   (FOp(visit_time3,visit_time3+ visit_period/4) >> (GOp(0, visit_period) >> box_predicate_3)) )
+formula        = ((FOp(visit_time1,visit_time1+ visit_period/4) >> (GOp(0, visit_period) >> box_predicate_1))  & 
+                  (FOp(visit_time2,visit_time2+ visit_period/4) >> (GOp(0, visit_period) >> box_predicate_2))  &  
+                  (FOp(visit_time4,visit_time4+ visit_period/4) >> (GOp(0, visit_period) >> box_predicate_4))  & 
+                  (FOp(visit_time3,visit_time3+ visit_period/4) >> (GOp(0, visit_period) >> box_predicate_3)) )
 
-formula   = FOp(visit_time1,visit_time1+ visit_period/4) >> (GOp(0, visit_period) >> box_predicate_1)
- 
 fig,ax = map.draw_formula_predicate(formula = formula, alpha = 0.2)
 # formula.show_graph()
 
@@ -89,6 +87,10 @@ time_varying_constraints : list[TimeVaryingConstraint] = compute_polyhedral_cons
                                                                                         plot_results = True,
                                                                                         k_gain       = 0.070,)
 
+print(len(time_varying_constraints), "time varying constraints")
+for tvc in time_varying_constraints:
+    tvc.plot3d(ax = ax, alpha =0.01,color = 'g')
+
 rrt_planner     = StlRRTStar(start_state     = x_0,
                             system           = system,
                             prediction_steps = 5,
@@ -96,7 +98,7 @@ rrt_planner     = StlRRTStar(start_state     = x_0,
                             map              = map,
                             max_input        = max_input,
                             max_iter         = 1000,
-                            space_step_size  = 5,
+                            space_step_size  = 10,
                             rewiring_radius  = 25,
                             rewiring_ratio   = 5,
                             biasing_ratio    = 2)

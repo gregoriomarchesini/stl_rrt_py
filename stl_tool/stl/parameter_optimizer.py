@@ -796,7 +796,7 @@ class BarriersOptimizer:
         A = self.system.A
         B = self.system.B
         slack         = cp.Variable(nonneg = True)
-        slack_penalty = 1E9
+        slack_penalty = 1E5
 
         constraints  :list[cp.Constraint]  = []
 
@@ -805,7 +805,7 @@ class BarriersOptimizer:
             
             # Get two consecutive time intervals in the sequence.
             s_j        = self.time_grid[jj]
-            s_j_plus_1 = self.time_grid[jj+1]
+            s_j_plus_1 = self.time_grid[jj+1]-0.0001 # it is like the value at the limit
 
             # Create vertices set. 
             s_j_vec        = np.array([s_j for i in range(vertices.shape[1])]) # column vector
@@ -823,8 +823,7 @@ class BarriersOptimizer:
                 barrier = self.barriers[active_task_index] 
 
                 e = barrier.e_vector(s_j) # time derivative of the gamma function for a given section
-                g = barrier.g_vector(s_j) # gamma function for a given section
-                gama_as_sj = barrier.gamma_at_time(s_j) # gamma function for a given section
+        
                 
                 c = barrier.c
                 D = barrier.D
@@ -836,10 +835,11 @@ class BarriersOptimizer:
                     eta_ii_not_time     = eta_ii[:-1]
                     time                = eta_ii[-1]
                     dyn                 = (A @ eta_ii_not_time + B @ u_ii) 
+                    gama_at_time        = barrier.gamma_at_time(time) # gamma function for a given section
 
                     D_high_order        = barrier.D_high_order
                     c_high_order        = barrier.c_high_order
-                    constraints        += [D_high_order @ dyn + e + k_gain * (D_high_order @ eta_ii_not_time + c_high_order + gama_as_sj ) + slack>= 0]
+                    constraints        += [D_high_order @ dyn + e + k_gain * (D_high_order @ eta_ii_not_time + c_high_order + gama_at_time ) + slack>= 0]
                     
 
         # Add flatness constraint
@@ -847,27 +847,26 @@ class BarriersOptimizer:
             constraints += barrier.get_gamma_flat_constraint()
 
         # Inclusion constraints
-        betas        = list({ barrier.time_grid[-1] for barrier in self.barriers}) # set inside the list removes duplicates if any.
+        betas        = list({ barrier.time_grid[-1] for barrier in self.barriers} | {0.}) # set inside the list removes duplicates if any.
         betas        = sorted(betas)
         
         epsilon = 1E-3
-        # zeta_vars    = cp.Variable(( x_dim, len(betas)))
-        # # Impose zeta vars in the workspace
-        # for kk in range(1,zeta_vars.shape[1]):
-        #     zeta_kk       =  zeta_vars[:,kk]
-        #     constraints  += [self.workspace.A @ zeta_kk <= self.workspace.b]
+        zeta_vars    = cp.Variable(( x_dim, len(betas)))
+        # Impose zeta vars in the workspace
+        for kk in range(1,zeta_vars.shape[1]):
+            zeta_kk       =  zeta_vars[:,kk]
+            constraints  += [self.workspace.A @ zeta_kk <= self.workspace.b]
         
-        # for l in range(1,len(betas)):
-        #     beta_l = betas[l]
-        #     zeta_l = zeta_vars[:,l]
+        for l in range(1,len(betas)):
+            beta_l = betas[l]
+            zeta_l = zeta_vars[:,l]
 
-        #     for l_tilde in self.active_barriers_map(betas[l-1]) : # barriers active at lim t-> - beta_l is equal to the one active at time beta_{l-1}
-                
-        #         gamma_at_beta_l = self.barriers[l_tilde].gamma_at_time(beta_l-0.001) # gamma function for a given section
-        #         D               = self.barriers[l_tilde].D  
-        #         c               = self.barriers[l_tilde].c
+            for l_tilde in self.active_barriers_map(betas[l-1]) : # barriers active at lim t-> - beta_l is equal to the one active at time beta_{l-1}
+                gamma_at_beta_l = self.barriers[l_tilde].gamma_at_time(beta_l-0.00001) # gamma function for a given section
+                D               = self.barriers[l_tilde].D  
+                c               = self.barriers[l_tilde].c
 
-        #         constraints += [D @ zeta_l + c +  gamma_at_beta_l >= epsilon ] # epsilon just to make sure the point is not at the boundary and it is strictly inside
+                constraints += [D @ zeta_l + c +  gamma_at_beta_l >= epsilon ] # epsilon just to make sure the point is not at the boundary and it is strictly inside
         
         # set the zeta at beta=0 zero and conclude
         # initial state constraint
@@ -889,7 +888,8 @@ class BarriersOptimizer:
         cost = 0.
         if self.minimize_r:
             for barrier in self.barriers:
-                cost      +=  10000*cp.exp(-cp.sum(barrier.r_var)/10)
+                # cost      +=  10000*cp.exp(-cp.sum(barrier.r_var)/10)
+                cost      +=  -cp.sum(barrier.r_var)
                 slack_cost = slack_penalty * slack
                 problem    = cp.Problem(cp.Minimize(cost+slack_cost), constraints)
         else:
@@ -958,7 +958,7 @@ class BarriersOptimizer:
         print("Status                         : ", problem.status)
         print("Solver time                    : ", problem.solver_stats.solve_time)
         print("Number of variables            : ", sum(var.size for var in problem.variables()))
-        print("Optimal Cost (expluding slack) :" , cost.value)
+        print("Optimal Cost (expluding slack) :" , cost.value if hasattr(cost,"value") else cost)
         print("Maximum Slack violation        : ", slack.value)
         print('Robustness                     : ', min( np.min(barrier.r_var.value) for barrier in self.barriers))
         print('K gain                         : ', k_gain.value)
@@ -992,11 +992,11 @@ class BarriersOptimizer:
                 start = barrier.time_grid[jj]
                 end   = barrier.time_grid[jj+1]
                 
-                H = np.hstack((D,e[:,np.newaxis]))
+                # convert from the form Dx + c >= 0 to Hx <= b
+
+                H = - np.hstack((D,e[:,np.newaxis]))
                 b =  c + g
 
-                # convert from the form Hx + c >= 0 to Hx <= b
-                H = -H
                 
                 if np.abs((end-start))>= 1E-5: # avoid inserting the polytope if the interval of time is very small
                     self.time_varying_polytope_constraints += [TimeVaryingConstraint(start_time=start, end_time=end, H=H, b=b)] # the second part of the constraint it is just flat so we can remove it.
@@ -1193,7 +1193,7 @@ class TimeVaryingConstraint:
 
         return polytope
     
-    def plot3d(self, ax: Optional[plt.Axes] = None) -> None:
+    def plot3d(self, ax: Optional[plt.Axes] = None,**kwords) -> None:
         """
         Plot the time-varying constraint.
         
@@ -1205,19 +1205,40 @@ class TimeVaryingConstraint:
         polytope = self.to_polytope()
         num_dims = polytope.num_dimensions
 
-        if num_dims != 3:
-            raise ValueError("Time-varying constraints can only be plotted in 2D.")
+        if num_dims == 3: # 2d polytope + time
         
-        if ax is None:
-            fig = plt.figure(figsize=(10, 10))
-            ax = fig.add_subplot(111, projection='3d')
+            if ax is None:
+                fig = plt.figure(figsize=(10, 10))
+                ax = fig.add_subplot(111, projection='3d')
 
-        polytope.plot(ax)
-        
-        # Set title and labels
-        ax.set_title(f'Time-Varying Constraint [{self.start_time}, {self.end_time}]')
-        ax.set_xlabel('x')
-        ax.set_ylabel('y')
+            polytope.plot(ax, **kwords)
+            
+            # Set title and labels
+            ax.set_title(f'Time-Varying Constraint [{self.start_time}, {self.end_time}]')
+            ax.set_xlabel('x')
+            ax.set_ylabel('y')
+
+        elif num_dims >= 3: # 3d polytope + time
+            if ax is None:
+                fig = plt.figure(figsize=(10, 10))
+                ax = fig.add_subplot(111, projection='3d')
+
+            for t in np.linspace(self.start_time, self.end_time, 10):
+                e = self.H[:,-1]
+                b = self.b
+                H = self.H[:,:3] # plot first three dimensions
+                b_t = b - e*t
+                polytope = Polyhedron(H, b_t)
+                # Plot the constraint as a polygon
+                polytope.plot(ax,**kwords)
+
+            # Set title and labels
+            ax.set_title(f'Time-Varying Constraint [{self.start_time}, {self.end_time}]')
+            ax.set_xlabel('x')
+            ax.set_ylabel('y')
+        else:
+            raise ValueError(f"Time-varying constraints can only be plotted in 3D or 4D. Given dimension: {num_dims}")
+
 
     def plot2d(self, ax: Optional[plt.Axes] = None) -> None:
         """
