@@ -21,13 +21,26 @@ Our goal is to develop scalable algorithms that guarantee logical correctness wh
 
 ## Installation
 
+## On Linux
 Clone the repository:
+
+
+```bash
+git  clone https://github.com/gregoriomarchesini/stl_rrt_py.git
+cd   stl_rrt_py
+sudo bash pre_install.sh # preinstall gmp dep
+pip  install -e .
+```
+
+## On Windows
+
 
 ```bash
 git clone https://github.com/gregoriomarchesini/stl_rrt_py.git
-cd stl_rrt_py
+cd  stl_rrt_py
 pip install -e .
 ```
+
 
 
 

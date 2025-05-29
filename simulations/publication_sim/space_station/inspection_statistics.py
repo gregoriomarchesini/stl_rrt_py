@@ -79,13 +79,13 @@ fig,ax = map.draw_formula_predicate(formula = formula, alpha = 0.2)
 x_0       = np.array([-100., 0., -50., 0.,0. , 0.]) # initial state
 map.show_point(x_0, color = 'r', label = 'start') # show start point
 
-time_varying_constraints : list[TimeVaryingConstraint] = compute_polyhedral_constraints(formula      =  formula,
-                                                                                        workspace    = workspace, 
-                                                                                        system       = system,
-                                                                                        input_bounds = input_bounds,
-                                                                                        x_0          = x_0,
-                                                                                        plot_results = True,
-                                                                                        k_gain       = 0.070,)
+time_varying_constraints,robustness  = compute_polyhedral_constraints(formula      =  formula,
+                                                                      workspace    = workspace, 
+                                                                      system       = system,
+                                                                      input_bounds = input_bounds,
+                                                                      x_0          = x_0,
+                                                                      plot_results = True,
+                                                                      k_gain       = 0.070,)
 
 ##########################################################
 # Plot time varying sets
@@ -175,12 +175,17 @@ with open(file_folder + "/statistics/" + filename, "w") as f:
     f.write("Average first solution cost: " + str(np.mean(first_sol_cost)) + "\n")
     f.write("standard deviation of first solution time: " + str(np.std(first_sol_time)) + "\n")
     f.write('standard deviation of first solution cost: ' + str(np.std(first_sol_cost)) + "\n")
+    f.write("Average best solution time: " + str(np.mean(best_sol_time)) + "\n")
+    f.write("Average best solution cost: " + str(np.mean(best_sol_cost)) + "\n")
+    f.write("standard deviation of best solution time: " + str(np.std(best_sol_time)) + "\n")
+    f.write('standard deviation of best solution cost: ' + str(np.std(best_sol_cost)) + "\n")
+
 
 # save time series as numpy array
 np.save(file_folder + "/statistics/first_sol_time.npy", first_sol_time)
 np.save(file_folder + "/statistics/first_sol_cost.npy", first_sol_cost)
 np.save(file_folder + "/statistics/best_sol_time.npy", best_sol_time)
 np.save(file_folder + "/statistics/best_sol_cost.npy", best_sol_cost)
-
+    
 rrt_planner.show_statistics()
 plt.show()

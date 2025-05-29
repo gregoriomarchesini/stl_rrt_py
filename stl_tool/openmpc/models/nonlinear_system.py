@@ -1,8 +1,8 @@
 import casadi as ca
 import numpy as np
 import control as ctrl
-from openmpc.support.integrators import RK,forward_euler
-from openmpc.models.model import Model
+from ..support.integrators import RK,forward_euler
+from ..models.model import Model
 
 
 class NonlinearSystem(Model):

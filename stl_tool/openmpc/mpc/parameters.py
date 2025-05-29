@@ -1,8 +1,8 @@
 import control
 import numpy as np
-from openmpc.invariant_sets import Polytope, invariant_set
-from openmpc.support.constraints import Constraint, TimedConstraint
-from openmpc.models import LinearSystem, NonlinearSystem
+from ..invariant_sets import Polytope, invariant_set
+from ..support.constraints import Constraint, TimedConstraint
+from ..models import LinearSystem, NonlinearSystem
 
 
 class MPCProblem:

@@ -79,7 +79,7 @@ fig,ax = map.draw_formula_predicate(formula = formula, alpha = 0.2)
 x_0       = np.array([-100., 0., -50., 0.,0. , 0.]) # initial state
 map.show_point(x_0, color = 'r', label = 'start') # show start point
 
-time_varying_constraints : list[TimeVaryingConstraint] = compute_polyhedral_constraints(formula      =  formula,
+time_varying_constraints, robustness                   = compute_polyhedral_constraints(formula      =  formula,
                                                                                         workspace    = workspace, 
                                                                                         system       = system,
                                                                                         input_bounds = input_bounds,
@@ -87,9 +87,9 @@ time_varying_constraints : list[TimeVaryingConstraint] = compute_polyhedral_cons
                                                                                         plot_results = True,
                                                                                         k_gain       = 0.070,)
 
-print(len(time_varying_constraints), "time varying constraints")
-for tvc in time_varying_constraints:
-    tvc.plot3d(ax = ax, alpha =0.01,color = 'g')
+# print(len(time_varying_constraints), "time varying constraints")
+# for tvc in time_varying_constraints:
+#     tvc.plot3d(ax = ax, alpha =0.01,color = 'g')
 
 rrt_planner     = StlRRTStar(start_state     = x_0,
                             system           = system,

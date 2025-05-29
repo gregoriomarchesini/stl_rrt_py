@@ -33,8 +33,8 @@ map.enlarge_obstacle(border_size=0.2) # enlarge obstacles
 ##########################################################
 # system and dynamics
 ##########################################################
-A             = np.random.rand(2,2)*0.1
-B             = np.diag([1.5,1.5])
+A             = (np.random.rand(2,2)-1.)*0.1
+B             = np.diag([1.,1.])
 dt            = 1.0
 system        = ContinuousLinearSystem(A, B, dt = dt)
 max_input     = 5.0
@@ -63,10 +63,11 @@ p4 = BoxBound2d(size = intrest_point["size_x"], center = np.array([intrest_point
 intrest_point = named_map["charging_station"]
 c_station     = BoxBound2d(size = intrest_point["size_x"], center = np.array([intrest_point["center_x"], intrest_point["center_y"]]), name = "charging_station")
 
-formula       =  (FOp(20,25) >> p1)  & (FOp(150,155) >> p2) & (GOp(0.01,200) >>  (FOp(0,140) >> c_station)) & (GOp(260,265) >> p3)
+formula1       =  (FOp(20,25) >> p1)  & (FOp(150,155) >> p2) & (GOp(0.01,200) >>  (FOp(0,140) >> c_station)) & (GOp(260,265) >> p3)
+formula2       =  (FOp(20,25) >> p2)  & (FOp(150,155) >> p3) & (GOp(0.01,200) >>  (FOp(0,140) >> c_station)) & (GOp(260,265) >> p1)
 
 # formula       =  (FOp(20,25) >> p1)  & (FOp(150,155) >> p2)
-fig,ax = map.draw_formula_predicate(formula = formula, alpha =0.2)
+fig,ax = map.draw_formula_predicate(formula = formula1, alpha =0.2)
 
 # # ##########################################################
 # # # From STL to Barriers
@@ -75,14 +76,27 @@ x_0       = c_station.polytope.sample_random()
 map.show_point(x_0, color = 'r', label = 'start') # show start point
 
 
-time_varying_constraints : list[TimeVaryingConstraint] = compute_polyhedral_constraints(formula      =  formula,
-                                                                                        workspace    = workspace, 
-                                                                                        system       = system,
-                                                                                        input_bounds = input_bounds,
-                                                                                        x_0          = x_0,
-                                                                                        plot_results = True)
+time_varying_constraints1,robustness_1   = compute_polyhedral_constraints(formula      =  formula1,
+                                                                          workspace    = workspace, 
+                                                                          system       = system,
+                                                                          input_bounds = input_bounds,
+                                                                          x_0          = x_0,
+                                                                          plot_results = True)
+
+time_varying_constraints2, robustness_2 = compute_polyhedral_constraints(formula      =  formula2,
+                                                                         workspace    = workspace, 
+                                                                         system       = system,
+                                                                         input_bounds = input_bounds,
+                                                                         x_0          = x_0,
+                                                                         plot_results = True)
 
 
+if robustness_2 >= robustness_1:
+    time_varying_constraints = time_varying_constraints2
+    print("Using formula 1")
+else:
+    time_varying_constraints = time_varying_constraints1
+    print("Using formula 2")
 
 
 # # for tvc in time_varying_constraints:
@@ -181,6 +195,10 @@ with open(file_folder + "/statistics/" + filename, "w") as f:
     f.write("Average first solution cost: " + str(np.mean(first_sol_cost)) + "\n")
     f.write("standard deviation of first solution time: " + str(np.std(first_sol_time)) + "\n")
     f.write('standard deviation of first solution cost: ' + str(np.std(first_sol_cost)) + "\n")
+    f.write("Average best solution time: " + str(np.mean(best_sol_time)) + "\n")
+    f.write("Average best solution cost: " + str(np.mean(best_sol_cost)) + "\n")
+    f.write("standard deviation of best solution time: " + str(np.std(best_sol_time)) + "\n")
+    f.write('standard deviation of best solution cost: ' + str(np.std(best_sol_cost)) + "\n")
 
 # save time series as numpy array
 np.save(file_folder + "/statistics/first_sol_time.npy", first_sol_time)

@@ -1,7 +1,7 @@
 import numpy as np
 import control
-from openmpc.models.linear_system import LinearSystem
-from openmpc.filters.parameters import KFParameters
+from ..models.linear_system import LinearSystem
+from ..filters.parameters import KFParameters
 
 
 

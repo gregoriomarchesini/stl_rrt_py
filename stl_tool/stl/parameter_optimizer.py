@@ -646,6 +646,7 @@ class BarriersOptimizer:
         self.x_0               : np.ndarray                      = x_0
         self.minimize_r        : bool                            = minimize_robustness
         self.given_k_gain      :float                            = k_gain
+        self.robustness        : float                           = 0. # initial guess for the robustness
 
         self.barriers                          : list[BarrierFunction]       = []
         self.time_varying_polytope_constraints : list[TimeVaryingConstraint] = []
@@ -1000,9 +1001,15 @@ class BarriersOptimizer:
                 
                 if np.abs((end-start))>= 1E-5: # avoid inserting the polytope if the interval of time is very small
                     self.time_varying_polytope_constraints += [TimeVaryingConstraint(start_time=start, end_time=end, H=H, b=b)] # the second part of the constraint it is just flat so we can remove it.
-
+        self.robustness = min( np.min(barrier.r_var.value) for barrier in self.barriers) # get the minimum robustness of the barriers
         return problem.solver_stats
     
+    def get_robustness(self) -> float:
+        """
+        Returns the minimum robustness of the barriers.
+        """
+        return self.robustness
+
 
     def plot_gammas(self) -> None:
         fig, ax = plt.subplots(figsize=(10, 4))
@@ -1087,7 +1094,7 @@ def compute_polyhedral_constraints(formula      : Formula,
                                     x_0          : np.ndarray,
                                     plot_results : bool = False,
                                     k_gain       : float = -1.,
-                                    polytope_file_name: str = "tvc_polytope.json") -> list["TimeVaryingConstraint"]:
+                                    polytope_file_name: str = "tvc_polytope.json") -> tuple[list["TimeVaryingConstraint"],float]:
     
     
     """
@@ -1122,8 +1129,9 @@ def compute_polyhedral_constraints(formula      : Formula,
         barrier_optimizer.plot_gammas()
     
     time_varying_constraints : list["TimeVaryingConstraint"] = barrier_optimizer.get_barrier_as_time_varying_polyhedrons()
+    robustness :float = barrier_optimizer.get_robustness()
     
-    return time_varying_constraints 
+    return time_varying_constraints, robustness
             
 
 class TimeVaryingConstraint:

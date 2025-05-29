@@ -1,4 +1,4 @@
-from openmpc.models import NonlinearSystem, LinearSystem
+from ..models import NonlinearSystem, LinearSystem
 import numpy as np
 
 

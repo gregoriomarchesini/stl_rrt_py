@@ -1,9 +1,9 @@
 import cvxpy as cp
 import numpy as np
-from openmpc.mpc.parameters import MPCProblem
-from openmpc.invariant_sets import Polytope
-from openmpc.support        import Constraint, TimedConstraint
-from openmpc.models         import LinearSystem
+from ..mpc.parameters import MPCProblem
+from ..invariant_sets import Polytope
+from ..support        import Constraint, TimedConstraint
+from ..models         import LinearSystem
 
 class MPC:
     r"""

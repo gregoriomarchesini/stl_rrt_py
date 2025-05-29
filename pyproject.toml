@@ -10,12 +10,15 @@ authors = [
 ]
 readme = "README.md"
 dependencies = [
-  "cvxpy",
+  "cvxpy[mosek]",
   "matplotlib",
   "numpy",
   "pycddlib",
   "tqdm",
-  "numpy-stl"
+  "numpy-stl",
+  "control",
+  "casadi"
 ]
+
 [tool.setuptools]
 packages = ["stl_tool"]

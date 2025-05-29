@@ -3,16 +3,16 @@ import numpy as np
 import matplotlib.pyplot as plt
 from   typing          import TypedDict
 from   tqdm            import tqdm
-from matplotlib.collections import LineCollection
-from mpl_toolkits.mplot3d.art3d import Line3DCollection
+from   matplotlib.collections import LineCollection
+from   mpl_toolkits.mplot3d.art3d import Line3DCollection
 from   scipy.spatial   import KDTree
-from scipy.interpolate import BSpline
+from   scipy.interpolate import BSpline
 import time
 
-from openmpc.mpc     import TimedMPC, MPCProblem
-from openmpc.models  import LinearSystem
-from openmpc.support import TimedConstraint
-from openmpc.models  import LinearSystem
+from ..openmpc.mpc     import TimedMPC, MPCProblem
+from ..openmpc.models  import LinearSystem
+from ..openmpc.support import TimedConstraint
+from ..openmpc.models  import LinearSystem
 
 
 from stl_tool.environment.map  import Map

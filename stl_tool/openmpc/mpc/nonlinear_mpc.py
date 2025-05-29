@@ -1,11 +1,11 @@
 import casadi as ca
 import numpy as np
 
-from  openmpc.support.integrators import RK
-from  openmpc.mpc.parameters import MPCProblem
-from openmpc.invariant_sets import Polytope
-from openmpc.support import Constraint
-from openmpc.models import NonlinearSystem
+from  ..support.integrators import RK
+from  ..mpc.parameters import MPCProblem
+from  ..invariant_sets import Polytope
+from  ..support import Constraint
+from  ..models import NonlinearSystem
 
 class NMPC:
     def __init__(self, mpc_params  : MPCProblem):

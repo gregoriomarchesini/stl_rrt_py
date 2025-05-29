@@ -1,5 +1,5 @@
 
-from openmpc.models.linear_system import LinearSystem
-from openmpc.models.nonlinear_system import NonlinearSystem
+from .linear_system import LinearSystem
+from .nonlinear_system import NonlinearSystem
 
 __all__ = ['LinearSystem', 'NonlinearSystem']

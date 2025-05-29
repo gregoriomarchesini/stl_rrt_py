@@ -1,7 +1,7 @@
 import casadi as ca
 import numpy as np
-from openmpc.models.nonlinear_system import NonlinearSystem
-from openmpc.filters.parameters import KFParameters
+from ..models.nonlinear_system import NonlinearSystem
+from ..filters.parameters import KFParameters
 
 class EKF:
     """
