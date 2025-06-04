@@ -1,0 +1,8 @@
+Average first solution time: 1.3894203028387608
+Average first solution cost: 65.76619944534968
+standard deviation of first solution time: 0.5067127585548415
+standard deviation of first solution cost: 0.8147595085072555
+Average best solution time: 3.002784554785013
+Average best solution cost: 65.33628730671555
+standard deviation of best solution time: 1.058255420765603
+standard deviation of best solution cost: 0.7119834165538995

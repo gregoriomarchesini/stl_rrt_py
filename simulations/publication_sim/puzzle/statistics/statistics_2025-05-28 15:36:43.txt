@@ -1,0 +1,4 @@
+Average first solution time: 1.3744946744299469
+Average first solution cost: 65.76619944534968
+standard deviation of first solution time: 0.4818377136022955
+standard deviation of first solution cost: 0.8147595085072555
