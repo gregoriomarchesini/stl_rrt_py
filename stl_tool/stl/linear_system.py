@@ -108,6 +108,52 @@ class SingleIntegrator3d(ContinuousLinearSystem):
         B = np.eye(3) 
         super().__init__(A, B, dt = dt)
 
+
+class SingleIntegrator2d(ContinuousLinearSystem):
+    """
+    Simple 2D single integrator system
+    """
+    def __init__(self, dt = 0.1):
+        """
+        Initialize the single integrator system.
+        """
+        A = np.zeros((2,2))
+        B = np.eye(2) 
+        super().__init__(A, B, dt = dt)
+
+class DoubleIntegrator2d(ContinuousLinearSystem):
+    """
+    Simple 2D double integrator system
+    """
+    def __init__(self, dt = 0.1):
+        """
+        Initialize the double integrator system.
+        """
+        A = np.array([[0, 1],
+                      [0, 0]])
+        B = np.array([[0],
+                      [1]])
+        super().__init__(A, B, dt = dt)
+
+class DoubleIntegrator3d(ContinuousLinearSystem):
+    """
+    Simple 3D double integrator system
+    """
+    def __init__(self, dt = 0.1):
+        """
+        Initialize the double integrator system.
+        """
+        A = np.array([[0, 1, 0],
+                      [0, 0, 1],
+                      [0, 0, 0]])
+        B = np.array([[0],
+                      [0],
+                      [1]])
+        super().__init__(A, B, dt = dt)
+
+
+
+
 class ISSDeputy(ContinuousLinearSystem):
 
     def __init__(self,dt = 0.1,r0 :float = 6771000):

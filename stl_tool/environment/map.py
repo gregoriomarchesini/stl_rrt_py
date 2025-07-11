@@ -139,7 +139,7 @@ class Map:
         # look recursuvely into the tree 
         def draw_recursively(node: Node, with_label = False):
             if isinstance(node, PredicateNode):
-                if node.polytope.num_dimensions != self.workspace.num_dimensions :
+                if node.polyhedron.num_dimensions != self.workspace.num_dimensions :
                     try :
                         C = selection_matrix_from_dims(n_dims = self.workspace.num_dimensions, selected_dims = node.dims)
                     except IndexError as e:
@@ -147,9 +147,9 @@ class Map:
                               "between the workspace dimension and the selected output indices of one of the predicates. For example you  created" \
                               " a predicate over dims =[1,2] but the workspace has only dimension 2, such that dimension 2 is out of bounds. " \
                               "The given exception is : {}".format(e))
-                    polytope = Polyhedron(node.polytope.A@C, b = node.polytope.b) # bring polytope to suitable dimension
+                    polytope = Polyhedron(node.polyhedron.A@C, b = node.polyhedron.b) # bring polytope to suitable dimension
                 else :
-                    polytope = node.polytope
+                    polytope = node.polyhedron
                 polytope.plot(self.ax, alpha=alpha,color='b',projection_dims= projection_dim)
                 # plot the name 
                 if node.name is not None and not polytope.is_open and with_label:

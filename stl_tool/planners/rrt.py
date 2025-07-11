@@ -20,7 +20,7 @@ from stl_tool.polyhedron              import Polyhedron,selection_matrix_from_di
 from stl_tool.stl.parameter_optimizer import TimeVaryingConstraint
 from stl_tool.stl.linear_system       import ContinuousLinearSystem
 
-
+from stl_tool.planners.samplers import BiasedSampler, UnbiasedSampler
 
 BIG_NUMBER = 1e10
      
@@ -32,37 +32,7 @@ class RRTSolution(TypedDict):
     clock_time   : float
 
 
-class BiasedSampler:
-    def __init__(self, list_of_polytopes : list[Polyhedron], list_of_times : list[float]):
-        
-        
-        self.list_of_polytopes :list[Polyhedron] = list_of_polytopes
-        self.list_of_times     :list[float]    = list_of_times
 
-        if len(list_of_polytopes) != len(list_of_times):
-            raise ValueError("The number of polytopes and times must be the same.")
-    
-    def get_sample(self, max_time :float) -> np.ndarray :
-        
-        
-
-        # Choose randomly among them
-        random_index = np.random.choice(len(self.list_of_polytopes))
-        t_tilde  :float       = self.list_of_times[random_index]
-        polytope :Polyhedron    = self.list_of_polytopes[random_index]
-        x_tilde  :np.ndarray  = polytope.sample_random()
-        
-        return np.hstack((x_tilde.flatten(),t_tilde)) # return the sample in the form of (x,y,t)
-    
-class UnbiasedSampler:
-    def __init__(self,workspace : Polyhedron):
-        self.workspace = workspace
-
-    def get_sample(self, max_time :float) -> np.ndarray :
-        t_tilde  = np.random.uniform(0, max_time)
-        x_tilde  :np.ndarray  = self.workspace.sample_random()
-        return np.hstack((x_tilde.flatten(),t_tilde)) # return the sample in the form of (x,y,t)
-          
 class StlRRTStar :
     def __init__(self, start_state      : np.ndarray, 
                        system           : ContinuousLinearSystem,
@@ -143,7 +113,7 @@ class StlRRTStar :
 
         self.delta_t = self.prediction_steps * self.system.dt
 
-        self.rewiring_ratio    = rewiring_ratio
+        self.rewiring_ratio    = rewiring_ratio            # determines how often the tree is rewired e.g.2 means every 2 iterations. The bigger the value the less often the rewiring is attempted.
         self.kd_tree_future    = KDTree([self.start_node]) # KD-tree for nearest neighbour search. Each node is a 3D point (x, y, t)
         
 

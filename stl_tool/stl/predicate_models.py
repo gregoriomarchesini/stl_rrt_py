@@ -26,9 +26,9 @@ class Geq(Predicate):
         A = np.eye(len(dims))
         b = np.array([bound]*len(dims))
         
-        # polytope is always defined as Ax<= b
-        polytope = Polyhedron(-A,-b)
-        super().__init__(polytope = polytope, dims = dims, name = name)
+        # polyhedron is always defined as Ax<= b
+        polyhedron = Polyhedron(-A,-b)
+        super().__init__(polyhedron = polyhedron, dims = dims, name = name)
         
 
 class Leq(Predicate):
@@ -52,9 +52,9 @@ class Leq(Predicate):
         A = np.eye(len(dims))
         b = np.array([bound]*len(dims))
         
-        # polytope is always defined as Ax<= b
-        polytope = Polyhedron(A,b)
-        super().__init__(polytope = polytope, dims = dims, name = name)
+        # polyhedron is always defined as Ax<= b
+        polyhedron = Polyhedron(A,b)
+        super().__init__(polyhedron = polyhedron, dims = dims, name = name)
 
 
 
@@ -95,8 +95,8 @@ class BoxBound(Predicate):
         A     = np.vstack((np.eye(len(dims)), -np.eye(len(dims))))
         b_vec = b + A @ center  # Ensuring proper half-space representation
 
-        polytope = Polyhedron(A, b_vec)
-        super().__init__(polytope = polytope, dims = dims, name = name)
+        polyhedron = Polyhedron(A, b_vec)
+        super().__init__(polyhedron = polyhedron, dims = dims, name = name)
     
 
 
@@ -169,8 +169,8 @@ class RegularPolygonPredicate2D(Predicate):
         # Right-hand side of the inequality A x ≤ b
         b = size * np.ones(n_sides) + A @ center
 
-        polytope = Polyhedron(A, b)
-        super().__init__(polytope=polytope, dims=[0, 1], name=name)
+        polyhedron = Polyhedron(A, b)
+        super().__init__(polyhedron=polyhedron, dims=[0, 1], name=name)
 
 
 class IcosahedronPredicate(Predicate):
@@ -184,7 +184,7 @@ class IcosahedronPredicate(Predicate):
         
         H,b,_,_ = self._icosahedron_h_representation(radius, center = np.array([x,y,z]))
         pp = Polyhedron(H, b)
-        super().__init__(polytope = pp, dims = dims, name = name)
+        super().__init__(polyhedron = pp, dims = dims, name = name)
         
 
     def _compute_plane_equation(self,v1, v2, v3):

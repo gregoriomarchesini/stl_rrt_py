@@ -47,19 +47,19 @@ input_bounds  = Box3d(x = 0.,y = 0.,z=0.,size = max_input*2)
 ##########################################################
 box_size = 70
 interest_point_1_center  = np.array([-100., 100., 0.])
-box_predicate_1          =  BoxBound(dims = [0,1,2], size = box_size, center = interest_point_1_center)
+box_predicate_1          =  BoxBound(dims = [0,1,2], size = box_size, center = interest_point_1_center) # create a predicate boc over the first three state coordinates (i.e. over the position of the ISS deputy)
 visit_time1              = 1000.
 
 interest_point_2_center  = np.array([-100., -100., 0.])
-box_predicate_2          =  BoxBound(dims = [0,1,2], size = box_size, center = interest_point_2_center)
+box_predicate_2          =  BoxBound(dims = [0,1,2], size = box_size, center = interest_point_2_center) # create a predicate boc over the first three state coordinates (i.e. over the position of the ISS deputy)
 visit_time2               = 2500.
 
 interest_point_4_center  = np.array([0., 0., 100.])
-box_predicate_4          =  BoxBound(dims = [0,1,2], size = box_size, center = interest_point_4_center)
+box_predicate_4          =  BoxBound(dims = [0,1,2], size = box_size, center = interest_point_4_center) # create a predicate boc over the first three state coordinates (i.e. over the position of the ISS deputy)
 visit_time4              = 3500.
 
 interest_point_3_center  = np.array([100., 100., 0.])
-box_predicate_3          =  BoxBound(dims = [0,1,2], size = box_size, center = interest_point_3_center)
+box_predicate_3          =  BoxBound(dims = [0,1,2], size = box_size, center = interest_point_3_center) # create a predicate boc over the first three state coordinates (i.e. over the position of the ISS deputy)
 visit_time3              = 5000.
 
 visit_period             = 400
@@ -92,16 +92,16 @@ time_varying_constraints, robustness                   = compute_polyhedral_cons
 #     tvc.plot3d(ax = ax, alpha =0.01,color = 'g')
 
 rrt_planner     = StlRRTStar(start_state     = x_0,
-                            system           = system,
-                            prediction_steps = 5,
-                            stl_constraints  = time_varying_constraints ,
-                            map              = map,
-                            max_input        = max_input,
-                            max_iter         = 1000,
-                            space_step_size  = 10,
-                            rewiring_radius  = 25,
-                            rewiring_ratio   = 5,
-                            biasing_ratio    = 2)
+                             system           = system,
+                             prediction_steps = 5,
+                             stl_constraints  = time_varying_constraints ,
+                             map              = map,
+                             max_input        = max_input,
+                             max_iter         = 1000,
+                             space_step_size  = 10,
+                             rewiring_radius  = 25,
+                             rewiring_ratio   = 5,
+                             biasing_ratio    = 2)
 
 
 

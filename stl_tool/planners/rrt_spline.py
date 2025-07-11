@@ -7,19 +7,14 @@ from   matplotlib.collections import LineCollection
 from   mpl_toolkits.mplot3d.art3d import Line3DCollection
 from   scipy.spatial   import KDTree
 import time
-
-from ..openmpc.mpc     import TimedMPC, MPCProblem
-from ..openmpc.models  import LinearSystem
-from ..openmpc.support import TimedConstraint
-from ..openmpc.models  import LinearSystem
-
+import casadi as ca
 
 from stl_tool.environment.map         import Map
 from stl_tool.polyhedron              import Polyhedron,selection_matrix_from_dims
 from stl_tool.stl.parameter_optimizer import TimeVaryingConstraint
-from stl_tool.stl.linear_system       import ContinuousLinearSystem
 
-
+from stl_tool.planners.samplers import BiasedSampler, UnbiasedSampler
+from stl_tool.splines.bezier import PBezierCurve, BezierCurve
 
 BIG_NUMBER = 1e10
      
@@ -31,43 +26,141 @@ class RRTSolution(TypedDict):
     clock_time   : float
 
 
-class BiasedSampler:
-    def __init__(self, list_of_polytopes : list[Polyhedron], list_of_times : list[float]):
-        
-        
-        self.list_of_polytopes :list[Polyhedron] = list_of_polytopes
-        self.list_of_times     :list[float]    = list_of_times
 
-        if len(list_of_polytopes) != len(list_of_times):
-            raise ValueError("The number of polytopes and times must be the same.")
+class STLSplineConnector:
+    """
+    A class to plan STLSpline trajectories using Bezier curves:
+
+    The planner is designed for second order systems and uses Bezier curves to repreent trajectories fixed by end point constraints over the initial/final - position/velocity.
+    """
+
+    def __init__(self, stl_constraints  : list[TimeVaryingConstraint] = [],  max_acceleration: float | None = None, t : float = 1.0) -> None:
+        
+        """
+        Initializes the STLSplineConnector with the given parameters.
+        
+        :param stl_constraints: List of time-varying constraints for the STL specifications. The constraints are of the form H[x,t] <= b and are imposed on the control points of the b-spline.
+        :param max_acceleration: maximum allowed acceleration for the trajectory. If None, no acceleration constraints are applied.
+        :param t: The time duration for the trajectory. Default is 1.0.
+
+        """
+        
+        
+        self.max_acceleration   = max_acceleration
+        self.stl_constraints    = stl_constraints
+
+        # check that the dimension of the constraint is correct
+        if len(self.stl_constraints) > 0:
+            dim = self.stl_constraints[0].H.shape[1] - 1
+            if dim != 6 and dim != 4:
+                raise ValueError(f"STLSplineConnector only supports 6D or 4D systems. This measn that the constraints must be posed for a a double integrator system where the state is given by the position and velocity."
+                                 f"Given dimension: {dim}.")
+        
+        
+        
+        self.dim                = dim
+        self.opti               = ca.Opti("conic")  # Create an Opti instance for optimization
+
+        self.position_curve     = PBezierCurve(order=5, dim=dim, opti = self.opti) # create a fifth order bezier curve for the position.
+        self.velocity_curve     = self.position_curve.get_derivative()             # velocity curve is the derivative of the position curve
+        self.acceleration_curve = self.velocity_curve.get_derivative()             # acceleration curve is the derivative of the velocity curve
+        self.jerk_curve         = self.acceleration_curve.get_derivative()         # jerk curve is the derivative of the acceleration curve
+
+        self.time_control_points = np.linspace(0, t, self.position_curve.n+1)  # time control points for the bezier curve (for order 5 you have 6 control points)
+
+        self.v0_par = self.opti.parameter(self.dim)   # initial velocity parameter
+        self.v1_par = self.opti.parameter(self.dim)   # final velocity parameter
+        self.p0_par = self.opti.parameter(self.dim)   # initial position parameter
+        self.p1_par = self.opti.parameter(self.dim)   # final position parameter
+        self.t0_par = self.opti.parameter(1)          # initial time parameter
+
+        
+        self._setup()
+
+
     
-    def get_sample(self, max_time :float) -> np.ndarray :
-        
-        
+    def _setup(self) :
 
-        # Choose randomly among them
-        random_index = np.random.choice(len(self.list_of_polytopes))
-        t_tilde  :float       = self.list_of_times[random_index]
-        polytope :Polyhedron    = self.list_of_polytopes[random_index]
-        x_tilde  :np.ndarray  = polytope.sample_random()
+
         
-        return np.hstack((x_tilde.flatten(),t_tilde)) # return the sample in the form of (x,y,t)
+        constraints = []
+        # constraints for the initial and final velocities 
+        constraints.append(self.velocity_curve.evaluate(0) == self.v0_par)
+        constraints.append(self.velocity_curve.evaluate(1) == self.v1_par)
+        # constraints for the initial and final positions
+        constraints.append(self.position_curve.evaluate(0) == self.p0_par)
+        constraints.append(self.position_curve.evaluate(1) == self.p1_par)
+
+        
+        
+        # add the timed-constraints
+        time_points = self.time_control_points + self.t0_par  # add the initial time to the time control points
+        
+        for ii in range(len(time_points)):
+            
+            # state time constraints (Only difference with standard set point tracking MPC)
+            for constraint in self.stl_constraints:
+                H,b              = constraint.to_polytope()
+                activation_bit   = self.activation_parameters[constraint][t]
+                self.constraints += [H @ cp.hstack((self.x[:, t], time)) <= b + (1 - activation_bit) * 1e6] # add time varying constraints
+
+       
+
+        # jerk cost along the lines
+        cost   = 0
+        t_span = np.linspace(0, 1, 1000)
+        dt     = t_span[1] - t_span[0]  # Time step for numerical integration
+        
+        for t in t_span:
+            jerk_value = self.jerk_curve.evaluate(t)
+            cost += ca.sumsqr(jerk_value)*dt
+
+        self.opti.subject_to(constraints)
+        self.opti.minimize(cost)
+        
+        self.opti.solver("osqp")  # Set the solver for the optimization problem
+
+        self.planner = self.opti.to_function('MPCPlanner',        [self.p0_par,self.p1_par, self.v0_par, self.v1_par],  [self.position_curve.stacked_vector], 
+                                                                  ['p0'      , 'p1'       ,'v0'        , 'v1']       ,  ['optimal_control_points',])
+        
+        
     
-class UnbiasedSampler:
-    def __init__(self,workspace : Polyhedron):
-        self.workspace = workspace
+    
+    def plan(self, p_0 : np.ndarray, p_1: np.ndarray,   v_0 : np.ndarray, v_1 : np.ndarray) -> tuple[BezierCurve, BezierCurve, BezierCurve, BezierCurve]:
+        
 
-    def get_sample(self, max_time :float) -> np.ndarray :
-        t_tilde  = np.random.uniform(0, max_time)
-        x_tilde  :np.ndarray  = self.workspace.sample_random()
-        return np.hstack((x_tilde.flatten(),t_tilde)) # return the sample in the form of (x,y,t)
-          
-class StlRRTStar :
+        # set the parameters 
+        
+        control_points_array    = self.planner(p_0, p_1, v_0, v_1)  # Call the planner function with the parameters
+        optimal_control_points  = [control_points_array[i*self.dim:(i+1)*self.dim].full().flatten() for i in range(self.position_curve.n)]  # Convert the output to a list of numpy arrays
+
+        position_curve_opt     = BezierCurve(optimal_control_points)
+        velocity_curve_opt     = position_curve_opt.get_derivative()
+        acceleration_curve_opt = velocity_curve_opt.get_derivative()
+        jerk_curve             = acceleration_curve_opt.get_derivative()
+
+    
+
+
+
+
+
+
+class StlRRTStarSpline :
+    """
+    RRT* planner for STL specifications with spline trajectories.
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    """
     def __init__(self, start_state      : np.ndarray, 
-                       system           : ContinuousLinearSystem,
-                       prediction_steps : int,
                        stl_constraints  : list[TimeVaryingConstraint],
-                       max_input        : float,
                        map              : Map,
                        max_iter         : int   = 100000, 
                        space_step_size  : float = 0.3, 
@@ -80,7 +173,6 @@ class StlRRTStar :
         
         
         start_state            = np.array(start_state).flatten()
-        self.system            = LinearSystem.c2d(system.A, system.B, dt = system.dt) # convert to discrete time system of openmpc
         self.start_time        = 0.                                                   # initial time
         self.start_cost        = 0.                                                   # start cost of the initial node
         self.start_node        = np.array([*start_state, self.start_time])            # Start node (node = (state,time))

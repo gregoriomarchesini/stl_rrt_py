@@ -41,28 +41,28 @@ class Node :
 
 class PredicateNode(Node):
     """
-    Predicate Node of the formula tree. It stores the polytope defining the predicate and the dimensions of the state space that define such polytope.
+    Predicate Node of the formula tree. It stores the polyhedron defining the predicate and the dimensions of the state space that define such polyhedron.
     """
-    def __init__(self, polytope: Polyhedron, dims : list[int]|int, name:str | None = None) -> None:
+    def __init__(self, polyhedron: Polyhedron, dims : list[int]|int, name:str | None = None) -> None:
         """
-        :param polytope: Polytope defining the predicate
-        :type polytope: Polytope
-        :param dims: dimensions of the state space that define the predicate. These are equal to the dimensions of the polytope.
+        :param polyhedron: Polytope defining the predicate
+        :type polyhedron: Polytope
+        :param dims: dimensions of the state space that define the predicate. These are equal to the dimensions of the polyhedron.
         :type dims: list[int]
         :param name: name of the predicate
         :type name: str
         """
 
         self.parent               : "OperatorNode" |None    = None
-        self.polytope             : Polyhedron                = polytope
+        self.polyhedron           : Polyhedron                = polyhedron
 
         if isinstance(dims, int):
             dims = [dims]
         self.dims                : list[int]               = dims
 
-        if len(dims) != polytope.A.shape[1]:
-            raise ValueError("The list of dimensions to which the polytope is applied must be equal to the number of dimensions of the polytope e.g. " +
-                            f"if the polytope is 4 dimensional then there must be 4 dimensions in the list. Given {len(dims)} dimensions and {polytope.A.shape[1]} dimensions in the polytope")
+        if len(dims) != polyhedron.A.shape[1]:
+            raise ValueError("The list of dimensions to which the polyhedron is applied must be equal to the number of dimensions of the polyhedron e.g. " +
+                            f"if the polyhedron is 4 dimensional then there must be 4 dimensions in the list. Given {len(dims)} dimensions and {polyhedron.A.shape[1]} dimensions in the polyhedron")
 
 
         Node.__init__(self)  
@@ -263,7 +263,7 @@ def deepcopy_predicate_node(node: Node) -> Node:
     """ Go down the tree and duplicate the poredicates which coudl be shared among different branches"""
 
     if isinstance(node, PredicateNode):
-        return PredicateNode(node.polytope, dims=node.dims, name= node.name)
+        return PredicateNode(node.polyhedron, dims=node.dims, name= node.name)
     
     else:
         if isinstance(node,UOp):
@@ -672,7 +672,7 @@ class Formula:
     
         def recursive_get_predicates(node: Node):
             if isinstance(node, PredicateNode):
-                return {node.name: node.polytope}
+                return {node.name: node.polyhedron}
             else:
                 predicates = {}
                 for child in node.children:
@@ -684,26 +684,26 @@ class Formula:
         
 class Predicate(Formula) :
     """
-    Wrapper class to create a predicate formula from a polytope.
+    Wrapper class to create a predicate formula from a polyhedron.
     """
-    def __init__(self, polytope: Polyhedron, dims:list[int]|int , name: str | None = None) -> None:
+    def __init__(self, polyhedron: Polyhedron, dims:list[int]|int , name: str | None = None) -> None:
         """
         
-        :param polytope: Polytope defining the predicate
-        :type polytope: Polytope
-        :param dims: dimensions of the state space that define the predicate. These are equal to the dimensions of the polytope.
+        :param polyhedron: Polytope defining the predicate
+        :type polyhedron: Polytope
+        :param dims: dimensions of the state space that define the predicate. These are equal to the dimensions of the polyhedron.
         :type dims: list[int]
         :param name: name of the predicate
         :type name: str
         """
-        super().__init__(root = PredicateNode(polytope = polytope , dims = dims , name = name))
+        super().__init__(root = PredicateNode(polyhedron = polyhedron , dims = dims , name = name))
 
     @property
-    def polytope(self) -> Polyhedron:
+    def polyhedron(self) -> Polyhedron:
         """
-        Get the polytope of the predicate node
+        Get the polyhedron of the predicate node
         """
-        return self.root.polytope
+        return self.root.polyhedron
     @property
     def dims(self)-> list[int]:
         """
@@ -719,7 +719,7 @@ class Predicate(Formula) :
     
     def __add__(self, other:"Predicate") -> "Predicate" :
         """
-        Cartesian product of two polytopes using the '+' operator.
+        Cartesian product of two polyhedrons using the '+' operator.
         
         :param other: Another Polytope object to combine with.
         :type other: Polytope
@@ -730,18 +730,18 @@ class Predicate(Formula) :
         if not isinstance(other, Predicate):
             raise ValueError(f"Cannot add {type(other)} to BoxBound. Only BoxBound is supported.")
         
-        old_polytope = self.polytope
-        new_polytope = old_polytope.cross(other.polytope)
+        old_polyhedron = self.polyhedron
+        new_polyhedron = old_polyhedron.cross(other.polyhedron)
 
-        # shift dimensions of the other polytope
+        # shift dimensions of the other polyhedron
         new_dims = self.dims + [d + len(self.dims) for d in other.dims]
 
         name = f"{self.name} + {other.name}" if self.name and other.name else None
-        return Predicate(polytope=new_polytope, dims=new_dims, name=name)
+        return Predicate(polyhedron=new_polyhedron, dims=new_dims, name=name)
 
     def __radd__(self, other:"Predicate") -> "Predicate" :
         """
-        Cartesian product of two polytopes using the '+' operator.
+        Cartesian product of two polyhedrons using the '+' operator.
         
         :param other: Another Polytope object to combine with.
         :type other: Polytope
@@ -752,12 +752,12 @@ class Predicate(Formula) :
         if not isinstance(other, Predicate):
             raise ValueError(f"Cannot add {type(other)} to BoxBound. Only BoxBound is supported.")
         
-        old_polytope = other.polytope
-        new_polytope = old_polytope.cross(self.polytope)
+        old_polyhedron = other.polyhedron
+        new_polyhedron = old_polyhedron.cross(self.polyhedron)
         # shift dimensions of self
         new_dims = other.dims + [d + len(other.dims) for d in self.dims]
         name = f"{other.name} + {self.name}" if self.name and other.name else None
-        return Predicate(polytope=new_polytope, dims=new_dims, name=name)
+        return Predicate(polyhedron=new_polyhedron, dims=new_dims, name=name)
 
 def get_fomula_type_and_predicate_node(formula : Formula ) -> tuple[str,PredicateNode] :
 
@@ -805,10 +805,10 @@ def get_fomula_type_and_predicate_node(formula : Formula ) -> tuple[str,Predicat
     
 #     A = np.array([[1, 0], [-1, 0], [0, 1], [0, -1]])
 #     b = np.array([1, 1, 1, 1])
-#     polytope = Polytope(A, b)
+#     polyhedron = Polytope(A, b)
 
 #     # Create a predicate node
-#     predicate_node = Predicate(polytope)
+#     predicate_node = Predicate(polyhedron)
 #     formula        = (~((((GOp(a=0, b=1) >> predicate_node) |  (GOp(a=0, b=1) >> (~predicate_node) ))) << UOp(1,2) >>  ((GOp(a=0, b=1) >> predicate_node) &  (GOp(a=0, b=1) >> (~predicate_node) )))) & (~((((GOp(a=0, b=1) >> predicate_node) |  (GOp(a=0, b=1) >> (~predicate_node) ))) << UOp(1,2) >>  ((GOp(a=0, b=1) >> predicate_node) &  (GOp(a=0, b=1) >> (~predicate_node) ))))
 
 #     stl_graph(formula,debug=    True)

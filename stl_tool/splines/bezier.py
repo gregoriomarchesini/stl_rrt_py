@@ -365,21 +365,30 @@ class MinimumJerkPlannerCasadi:
 
         return position_curve_opt, velocity_curve_opt, acceleration_curve_opt, jerk_curve
     
-class STLSplinePlanner:
-    """
-    A class to plan STLSpline trajectories using Bezier curves.
-    This class is a wrapper around the get_minimum_jerk_bezier_curve function.
-    """
+    
 
-    def __init__(self, dim :int = 2, max_acceleration: float | None = None):
-        """
-            Initialize the STLSplinePlanner with the dimension of the space and an optional maximum acceleration constraint
-            :param dim: Dimension of the space in which the Bezier curve will be defined.
-            :param max_acceleration: Optional maximum acceleration constraint. If None, no constraint is applied
-        """
-        self.max_acceleration   = max_acceleration
-        self.dim                = dim
-        self.opti               = ca.Opti("conic")  # Create an Opti instance for optimization
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
         
 
