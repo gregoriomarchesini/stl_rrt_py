@@ -1046,6 +1046,7 @@ class BarriersOptimizer:
         
 
             self.opti.solver("osqp",p_opts)
+            
         
         elif self.solver == "ipopt":
             p_opts = {
@@ -1063,7 +1064,6 @@ class BarriersOptimizer:
             self.opti.solver("ipopt",p_opts)
 
 
-        
         if self.given_k_gain < 0.:
 
 
@@ -1313,7 +1313,7 @@ def compute_polyhedral_constraints(formula       : Formula,
                                           input_bound  = input_bounds,
                                           x_0          = x_0,
                                           k_gain       = k_gain,
-                                          solver       = "OSQP")
+                                          solver       = "ipopt")
     
     barrier_optimizer.save_polyhedrons(polyhedron_file_name)
     
