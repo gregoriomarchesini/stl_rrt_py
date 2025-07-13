@@ -4,7 +4,9 @@ import casadi as ca
 from   typing     import Optional, Union
 from   matplotlib import pyplot as plt
 from   tqdm       import tqdm
+from   time       import perf_counter
 import json
+
 from multiprocessing import Pool
 
 
@@ -131,7 +133,12 @@ class BarrierFunction :
 
         elif t == self.time_grid[-1]:
             
-            sum_gammas               = ca.sum([self.time_step[k] * self.slopes_var[k] for k in range(self.num_time_intervals-1)])
+            sum_gammas               = 0.
+            for k in range(self.num_time_intervals-1) :
+                sum_gammas += self.time_step[k] * self.slopes_var[k]
+            
+            
+            
             one_before_the_last_time = self.time_grid[-2]
             last_slope               = self.slopes_var[-1]
             g                        = self.gamma_0_var + sum_gammas - last_slope*one_before_the_last_time
@@ -142,7 +149,9 @@ class BarrierFunction :
                 if t< self.time_grid[jj+1] and t >= self.time_grid[jj] :
                     
                     if jj > 0:
-                        sum_gammas = ca.sum([self.time_step[k] * self.slopes_var[k] for k in range(jj)])
+                        sum_gammas = 0.
+                        for k in range(jj):
+                            sum_gammas += self.time_step[k] * self.slopes_var[k]
 
                     else :
                         sum_gammas= 0.
@@ -189,7 +198,7 @@ class BarrierFunction :
         ##############################################################
 
         constraints += [self.r_var > 0.] # robustness must be positive
-        constraints += [self.slopes_var <= 0.]
+        constraints += [self.slopes_var[k] <= 0. for k in range(len(self.slopes_var))] # slopes must be non-positive
         constraints += [self.gamma_0_var > 0.] # initial value of the gamma function must be non-negative
 
         return constraints
@@ -481,7 +490,7 @@ class TaskScheduler:
 
                     # create time constraints
                     self.time_constraints += [task.beta_var >= tau_prev + delta_bar * interval_prime, 
-                                              task.beta_var <= tau_prev  + 1         * interval_prime]
+                                              task.beta_var <= tau_prev  + 1        * interval_prime]
                     self.time_constraints += [task.beta_var >= 0.] # time instant should be positive
                     
                     tau_prev = task.beta_var # this is the link to the previous task.
@@ -526,8 +535,9 @@ class TaskScheduler:
             print("Found Tasks of type: ", varphi_type)
             print("Start time:          ", start_time)
             print("Duration:            ", duration)
-            if task.derived:
-                print("(note*) Derived from an always-eventually task")
+            if varphi_type == "F" :
+                if task.derived:
+                    print("(note*) Derived from an always-eventually task")
             print("---------------------------------------------")
 
             ax.broken_barh([(start_time, duration)], (i - 0.4, 0.8), facecolors='tab:blue')
@@ -638,7 +648,7 @@ class TaskScheduler:
                     
                 else : # try to iniitalize the eventually task better
                     if time_interval_e.a <= time_interval_a.a:
-                        self.opti.set_initial(task_e.beta_var, time_interval_a.a) # give initial guess to the solver
+                        self.opti.set_initial(task_e.beta_var, time_interval_e.a) # give initial guess to the solver
                     
                     elif time_interval_e.b >= time_interval_a.b:
                         self.opti.set_initial(task_e.beta_var,time_interval_a.b)
@@ -665,6 +675,8 @@ class TaskScheduler:
         # Zip and sort based on time_instants
         sorted_pairs = sorted(zip(time_instants, time_instants_vars), key=lambda pair: pair[0])
 
+        print("sorted time instants: ", [pair[0] for pair in sorted_pairs])
+
         # Extract sorted time_instants_vars
         sorted_time_instants_vars = [var for _, var in sorted_pairs]
         
@@ -680,10 +692,11 @@ class TaskScheduler:
         print("===========================================================")
         print("Times Schedule completed")
         print("===========================================================")
-        print("Number of tasks created: ", len(self.tasks_list))
-        print("Times optimization status: ", self.opti.stats())
+        print("Number of tasks created   : ", len(self.tasks_list))
+        print("Times optimization status : ", self.opti.stats()["return_status"])
         
         print("Listing alpha and beta values per task :")
+        print("-----------------------------------------------------")
         for task in self.tasks_list:  
             if isinstance(task,AlwaysTask):
                 print("Operator   : ", "Always")
@@ -712,7 +725,8 @@ class BarriersOptimizer:
                        input_bound : Polyhedron ,
                        x_0         : np.ndarray,
                        minimize_robustness : bool = True,
-                       k_gain      : float = -1.) -> None:
+                       k_gain      : float = -1.,
+                       solver      : str   = "OSQP") -> None:
         
         """
         
@@ -740,6 +754,14 @@ class BarriersOptimizer:
         self.minimize_r        : bool                            = minimize_robustness
         self.given_k_gain      :float                            = k_gain
         self.robustness        : float                           = 0. # initial guess for the robustness
+        self.solver            : str                             = solver
+        
+        if solver == "OSQP":
+            self.opti              : ca.Opti                         = ca.Opti("conic")
+        elif solver == "ipopt":
+            self.opti              : ca.Opti                         = ca.Opti()
+        else :
+            raise ValueError("The solver must be either 'OSQP' or 'ipopt'. Please choose one of the two solvers.")
 
         self.barriers                            : list[BarrierFunction]       = []
         self.time_varying_polyhedron_constraints : list[TimeVaryingConstraint] = []
@@ -772,9 +794,15 @@ class BarriersOptimizer:
         for task in self.tasks_list:
             time_grid_barrier = [time for time in self.time_grid if  time <= task.beta_var_value]
             if hasattr(task,"alpha_var"):
-                barrier = BarrierFunction(polyhedron = task.polyhedron, time_grid = time_grid_barrier, flat_time = task.alpha_var_value)
+                barrier = BarrierFunction(opti       = self.opti,
+                                          polyhedron = task.polyhedron, 
+                                          time_grid  = time_grid_barrier, 
+                                          flat_time  = task.alpha_var_value)
             else:
-                barrier = BarrierFunction(polyhedron = task.polyhedron, time_grid = time_grid_barrier, flat_time = task.beta_var_value)
+                barrier = BarrierFunction(opti       = self.opti,
+                                          polyhedron = task.polyhedron, 
+                                          time_grid  = time_grid_barrier, 
+                                          flat_time  = task.beta_var_value)
 
             self.barriers.append(barrier)
 
@@ -881,18 +909,18 @@ class BarriersOptimizer:
         vertices        = self.workspace.vertices.T # matrix [dim x,num_vertices]
         x_dim           = self.workspace.num_dimensions
 
-        opti        = ca.Opti("conic")
         constraints = []
 
         # integrate the alpha and beta switching times into the time grid (so time steps between switching times will not be homogenous)
-        k_gain     = opti.parameter() #! (when program fails try to increase control input and increase the k_gain. Carefully analyze the situation. Usually it should be at leat equal to 1.)
+        k_gain     = self.opti.parameter() #! (when program fails try to increase control input and increase the k_gain. Carefully analyze the situation. Usually it should be at leat equal to 1.)
         order      = self._make_high_order_corrections(system = self.system, k_gain = k_gain)
         
 
         A = self.system.A
         B = self.system.B
-        slack         = opti.variable()
+        slack         = self.opti.variable()
         slack_penalty = 1E5
+        self.opti.set_initial(slack,10)
         constraints  += [slack >= 0] # slack variable for the constraints
 
         # dynamic constraints
@@ -906,12 +934,13 @@ class BarriersOptimizer:
             s_j_vec        = np.array([s_j for i in range(vertices.shape[1])]) # column vector
             s_j_plus_1_vec = np.array([s_j_plus_1 for i in range(vertices.shape[1])])
             V_j            = np.hstack((np.vstack((vertices,s_j_vec)) , np.vstack((vertices,s_j_plus_1_vec)))) # space time vertices
-            U_j            = opti.variable(self.system.size_input, V_j.shape[1])                                         # spece of control input vertices
+            U_j            = self.opti.variable(self.system.size_input, V_j.shape[1])                                         # spece of control input vertices
             
             # Input constraints.
             for kk in range(U_j.shape[1]):
                 u_kk = U_j[:,kk]
-                constraints += [ca.mtimes(self.input_bounds.A,u_kk) <= self.input_bounds.b]
+                constraints += [ca.mtimes(self.input_bounds.A,u_kk) - self.input_bounds.b <= 0.] # input constraints
+
             
             # Forward-invariance constraints. 
             for active_task_index in self.active_barriers_map(s_j): # for each active task
@@ -927,12 +956,12 @@ class BarriersOptimizer:
 
                     eta_ii_not_time     = eta_ii[:-1]
                     time                = eta_ii[-1]
-                    dyn                 = (ca.mtimes(A,eta_ii_not_time) + B @ u_ii) 
+                    dyn                 = (ca.mtimes(A,eta_ii_not_time) + ca.mtimes(B,u_ii)) 
                     gama_at_time        = barrier.gamma_at_time(time) # gamma function for a given section
 
                     D_high_order        = barrier.D_high_order
                     c_high_order        = barrier.c_high_order
-                    constraints        += [ca.mtimes(D_high_order,dyn) + e + k_gain * (ca.mtimes(D_high_order,eta_ii_not_time) + c_high_order + gama_at_time ) + slack>= 0]
+                    constraints        += [ca.mtimes(D_high_order,dyn) + e + k_gain * (ca.mtimes(D_high_order,eta_ii_not_time) + c_high_order + gama_at_time ) + slack>= 0.] # forward invariance constraints
                     
 
         # Add flatness constraint
@@ -944,11 +973,11 @@ class BarriersOptimizer:
         betas        = sorted(betas)
         
         epsilon      = 1E-3
-        zeta_vars    = opti.variable( x_dim, len(betas))
+        zeta_vars    = self.opti.variable( x_dim, len(betas))
         # Impose zeta vars in the workspace
         for kk in range(1,zeta_vars.shape[1]):
             zeta_kk       =  zeta_vars[:,kk]
-            constraints  += [ca.mtimes(self.workspace.A,zeta_kk) <= self.workspace.b]
+            constraints  += [ca.mtimes(self.workspace.A,zeta_kk) - self.workspace.b <= 0.] # inclusion constraints]
         
         for l in range(1,len(betas)):
             beta_l = betas[l]
@@ -959,12 +988,12 @@ class BarriersOptimizer:
                 D               = self.barriers[l_tilde].D  
                 c               = self.barriers[l_tilde].c
 
-                constraints += [ca.mtimes(D,zeta_l) + c +  gamma_at_beta_l >= epsilon ] # epsilon just to make sure the point is not at the boundary and it is strictly inside
+                constraints += [ca.mtimes(D,zeta_l) + c +  gamma_at_beta_l - epsilon >=  0.] # epsilon just to make sure the point is not at the boundary and it is strictly inside
         
         # set the zeta at beta=0 zero and conclude
         # initial state constraint
         
-        zeta_0  = opti.variable(x_dim)
+        zeta_0  = self.opti.variable(x_dim)
         for barrier in self.barriers:
             # at time beta=0 all tasks are active and they are in the first linear section of gamma
             
@@ -972,29 +1001,72 @@ class BarriersOptimizer:
             D = barrier.D
             gamma_at_zero = barrier.gamma_at_time(0.)
 
-            constraints += [ca.mtimes(D,zeta_0) + c +  gamma_at_zero >= epsilon] # constraint at time 0 (epsilon just to be strictly inside)
+            constraints += [ca.mtimes(D,zeta_0) + c +  gamma_at_zero- epsilon >= 0.] # constraint at time 0 (epsilon just to be strictly inside)
         
         # initial state constraint
         constraints += [zeta_0 == x_0]
 
         # create problem and solve it
         cost = 0.
+
+    
         if self.minimize_r:
             for barrier in self.barriers:
                 # cost      +=  10000*cp.exp(-cp.sum(barrier.r_var)/10) # nonlinear cost
                 cost      +=  -ca.sum(barrier.r_var)
-                slack_cost = slack_penalty * slack
-                opti.minimize(cost+slack_cost) # minimize the cost function
-                opti.subject_to(*constraints) # add constraints to the optimization problem
-        else:
-            for barrier in self.barriers:
-                slack_cost = slack_penalty * slack
-                opti.minimize(slack_cost) # minimize the slack variable
-                opti.subject_to(*constraints) # add constraints to the optimization problem
+            
+            slack_cost = slack_penalty * slack 
+            cost       = cost + slack_cost # add slack cost to the cost function
 
-        opti.solver("osqp")
+        else:
+ 
+            slack_cost = slack_penalty * slack 
+        
+        self.opti.minimize(cost) # minimize the slack variable
+        self.opti.subject_to(constraints) # add constraints to the optimization problem
+        
+        if self.solver == "OSQP":
+            p_opts = {
+                # QP options
+                "error_on_fail": 0,
+                "print_time": 0,
+                "verbose": 1,
+                "jit": True,  # Enable JIT compilation for performance
+                "jit_options": {'compiler': 'ccache gcc',
+                                'flags': ["-O2", "-pipe"]},
+                'compiler': 'shell',
+                "osqp" : 
+                       {"eps_abs" : 1E-3, 
+                        "eps_rel" : 1E-5, # maintain high relative accuracies 
+                        "max_iter": 30000, 
+                        "polish"  : True,
+                        "verbose" : True,
+                        "scaling"  : 40}, # important to maintain the polish to get the high accuracy solution for a linear program
+            }
+        
+
+            self.opti.solver("osqp",p_opts)
+        
+        elif self.solver == "ipopt":
+            p_opts = {
+                # QP options
+                "error_on_fail": 0,
+                "print_time": 0,
+                "verbose": 1,
+                "hessian_approximation": "limited-memory", # use limited memory approximation for the Hessian
+            #     "jit": True,  # Enable JIT compilation for performance
+            #     "jit_options": {'compiler': 'ccache gcc',
+            #                     'flags': ["-O2", "-pipe"]},
+            #     'compiler': 'shell',
+            }
+        
+            self.opti.solver("ipopt",p_opts)
+
+
         
         if self.given_k_gain < 0.:
+
+
             good_k_found = False
 
             print("Selecting a good gain k ...")
@@ -1002,31 +1074,38 @@ class BarriersOptimizer:
             if order > 1:
                 k_vals = np.arange(0.000001, 0.5, 0.03)
             else :
-                k_vals = np.arange(0.001, 1, 0.003)
+                k_vals = np.arange(0.001, 1., 0.003)
             
             best_k    = k_vals[0]
             best_slak = 1E10
+            
             # Parallelize using multiprocessing
             with tqdm(total=len(k_vals)) as pbar:
                 for k_val in k_vals:
                     pbar.set_description(f"k = {k_val:.3f}")
-                    opti.set_value(k_gain,k_val)
+                    self.opti.set_value(k_gain,k_val)
                     
                     try :
-                        opti.solve()
+                        start =  perf_counter()
+                        self.opti.solve()
+                        end   = perf_counter()
                         pbar.update(1)
-                    except :
+                    except Exception as e:
+                        print(f"Error in solving the problem with k_gain {k_val}. The error is the following {e}")
                         pbar.update(1)
                         continue
-                    if opti.stats()["success"] and opti.value(slack) < 1E-5:
-                        best_k = k_val
+                    
+                    
+                    if self.opti.stats()["return_status"] == "solved" and self.opti.value(slack) < 1E-4:
+                        best_k       = k_val
                         good_k_found = True
+                        best_k_time  = end - start
             
-
-                    elif opti.stats()["success"] and opti.value(slack) > 1E-5 and not good_k_found:
-                        if  opti.value(slack) <= best_slak :
-                            best_slak = opti.value(slack)
-                            best_k    = k_val 
+                    elif self.opti.stats()["return_status"] == "solved" and self.opti.value(slack) > 1E-4 and not good_k_found:
+                        if  self.opti.value(slack) <= best_slak :
+                            best_slak   = self.opti.value(slack)
+                            best_k      = k_val 
+                            best_k_time = end - start
                     else :
                         continue
                 
@@ -1034,15 +1113,27 @@ class BarriersOptimizer:
             if not good_k_found:
                 print("No good k found. Please increase the range of k. Returing k with minimum violation")
             
-            opti.set_value(k_gain, best_k)
-            opti.solve()
+            print("Best k found: ", best_k)
+            print("Best k time: ", best_k_time)
+            print("Best slack violation: ", best_slak)
+
+            self.opti.set_value(k_gain, best_k)
+            self.opti.solve()
                 
         else:
             print("Given k_gain:",self.given_k_gain)
-            opti.set_value(k_gain, self.given_k_gain)
+
+            self.opti.set_value(k_gain, self.given_k_gain)
             
             try :
-                opti.solve()
+                start =  perf_counter()
+                self.opti.solve()
+                end   = perf_counter()
+
+                best_slak   = self.opti.value(slack)
+                best_k      = self.given_k_gain
+                best_k_time = end - start
+                
             except Exception as e :
                 print(f"Error in solving the problem with given k_gain {self.given_k_gain}. The error is the following")
                 raise e
@@ -1050,14 +1141,14 @@ class BarriersOptimizer:
         print("===========================================================")
         print("Barrier functions optimization result")
         print("===========================================================")
-        print("Status                         : ", "success" if opti.stats()["success"] else "failure")
-        print("Solver time                    : ", opti.stats()["t_wall_solver"])
-        print("Number of variables            : ", opti.debug.nx)
-        print("Number of constraints          : ", opti.debug.ng)
-        print("Optimal Cost (expluding slack) :" , opti.value(cost))
-        print("Maximum Slack violation        : ", opti.value(slack))
-        print('Robustness                     : ', min(ca.mmin(opti.value(barrier.r_var).full()) for barrier in self.barriers))
-        print('K gain                         : ', opti.value(k_gain))
+        print("Status                         : ", "success" if self.opti.stats()["success"] else "failure")
+        print("Solver time                    : ", best_k_time)
+        print("Number of variables            : ", self.opti.debug.nx)
+        print("Number of constraints          : ", self.opti.debug.ng)
+        print("Optimal Cost (expluding slack) :" , self.opti.value(cost))
+        print("Maximum Slack violation        : ", self.opti.value(slack))
+        print('Robustness                     : ', min(ca.mmin(self.opti.value(barrier.r_var)) for barrier in self.barriers))
+        print('K gain                         : ', self.opti.value(k_gain))
         print("-----------------------------------------------------------")
         print("Listing parameters per task")
 
@@ -1068,11 +1159,11 @@ class BarriersOptimizer:
             if isinstance(task,EventuallyTask):
                 print("Task tau        :", task.beta_var_value)
             
-            print("Barrier gamma_0 : ", opti.value(barrier.gamma_0_var))
-            print("Barrier r       : ", opti.value(barrier.r_var))
+            print("Barrier gamma_0 : ", self.opti.value(barrier.gamma_0_var))
+            print("Barrier r       : ", self.opti.value(barrier.r_var))
             print("---------------------------------------------------")
 
-        if not opti.stats()["success"] :
+        if not self.opti.stats()["success"] :
             print("Problem is not optimal. Terminate!")
             exit()
         
@@ -1084,8 +1175,8 @@ class BarriersOptimizer:
             for jj,time in enumerate(barrier.time_grid[:-1]) :
                 
                
-                e = opti.value(barrier.e_vector(time)).full()
-                g = opti.value(barrier.g_vector(time)).full()
+                e = self.opti.value(barrier.e_vector(time))
+                g = self.opti.value(barrier.g_vector(time))
 
                 start = barrier.time_grid[jj]
                 end   = barrier.time_grid[jj+1]
@@ -1099,9 +1190,9 @@ class BarriersOptimizer:
                 if np.abs((end-start))>= 1E-5: # avoid inserting the polyhedron if the interval of time is very small
                     self.time_varying_polyhedron_constraints += [TimeVaryingConstraint(start_time=start, end_time=end, H=H, b=b)] # the second part of the constraint it is just flat so we can remove it.
         
-        self.robustness = min( ca.mmin(barrier.r_var).full() for barrier in self.barriers) # get the minimum robustness of the barriers
+        self.robustness = min( ca.mmin(self.opti.value(barrier.r_var)) for barrier in self.barriers) # get the minimum robustness of the barriers
         
-        return opti
+        return self.opti
     
     
     
@@ -1221,7 +1312,8 @@ def compute_polyhedral_constraints(formula       : Formula,
                                           system       = system,
                                           input_bound  = input_bounds,
                                           x_0          = x_0,
-                                          k_gain       = k_gain)
+                                          k_gain       = k_gain,
+                                          solver       = "OSQP")
     
     barrier_optimizer.save_polyhedrons(polyhedron_file_name)
     

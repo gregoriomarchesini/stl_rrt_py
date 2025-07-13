@@ -83,14 +83,14 @@ time_varying_constraints1,robustness_1   = compute_polyhedral_constraints(formul
                                                                           system       = system,
                                                                           input_bounds = input_bounds,
                                                                           x_0          = x_0,
-                                                                          plot_results = True)
+                                                                          plot_results = True,)
 
-# time_varying_constraints2, robustness_2 = compute_polyhedral_constraints(formula      =  formula2,
-#                                                                          workspace    = workspace, 
-#                                                                          system       = system,
-#                                                                          input_bounds = input_bounds,
-#                                                                          x_0          = x_0,
-#                                                                          plot_results = True)
+time_varying_constraints2, robustness_2 = compute_polyhedral_constraints(formula      =  formula2,
+                                                                         workspace    = workspace, 
+                                                                         system       = system,
+                                                                         input_bounds = input_bounds,
+                                                                         x_0          = x_0,
+                                                                         plot_results = True)
 
 # # plot the time varying constraints if you need
 # # # for tvc in time_varying_constraints:
