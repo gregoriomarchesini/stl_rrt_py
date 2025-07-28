@@ -176,6 +176,10 @@ class PBezierCurve:
         
         :param order: Order of the Bezier curve (number of control points is order + 1).
         :type order: int
+        :param dim: Dimension of the space in which the Bezier curve is defined (e.g. for 2D, dim=2, for 3D, dim =3).
+        :type dim: int
+        :param opti: Optional casadi Opti instance for optimization. If None, a new Opti instance will be created.
+        :type opti: ca.Opti | None
         """
 
         self.dim            : int                            = dim
@@ -187,7 +191,7 @@ class PBezierCurve:
         self.n              : int                            = order  # Order of the Bezier curve
 
     @property
-    def stacked_vector(self) -> ca.MX:
+    def stacked_control_points(self) -> ca.MX:
         """
         Get the stacked vector of control points.
         
@@ -232,7 +236,7 @@ class PBezierCurve:
             raise ValueError("Parameter t must be in the range [0, 1].")
         
         M = self.bernstein_matrix(t)
-        return ca.mtimes(M,self.stacked_vector)
+        return ca.mtimes(M,self.stacked_control_points)
     
     
 
@@ -257,7 +261,7 @@ class PBezierCurve:
         
         
         P = np.kron(P, np.eye(self.dim))
-        new_control_points = ca.mtimes(P,self.stacked_vector) # the difference is just a matrix operation
+        new_control_points = ca.mtimes(P,self.stacked_control_points) # the difference is just a matrix operation
         new_control_points = [new_control_points[i * self.dim:(i + 1) * self.dim] for i in range(self.n)]
         
         return PBezierCurve.from_control_points(control_points= new_control_points, opti= self.opti) # return fully parameteric bezier curve with the new control points
@@ -344,7 +348,7 @@ class MinimumJerkPlannerCasadi:
         
         self.opti.solver("osqp")  # Set the solver for the optimization problem
 
-        self.planner = self.opti.to_function('MPCPlanner',        [self.p0_par,self.p1_par, self.v0_par, self.v1_par],  [self.position_curve.stacked_vector], 
+        self.planner = self.opti.to_function('MPCPlanner',        [self.p0_par,self.p1_par, self.v0_par, self.v1_par],  [self.position_curve.stacked_control_points], 
                                                                   ['p0'      , 'p1'       ,'v0'        , 'v1']       ,  ['optimal_control_points',])
         
         

@@ -53,7 +53,7 @@ class BarrierFunction :
         self.flat_time : float       = flat_time
         
 
-        self.slopes_var  : list[cp.Variable] = [ cp.Variable(polytope.num_hyperplanes, neg= True, name = f"section_{jj}_of_{len(time_grid)-1}") for jj in range(len(time_grid)-1) ]# one slope for each interva
+        self.slopes_var  : list[cp.Variable] = [ cp.Variable(polytope.num_hyperplanes, neg= True, name = f"section_{jj}_of_{len(time_grid)-1}") for jj in range(len(time_grid)-1) ]# one slope for each interval
         
         self.gamma_0_var : cp.Variable = cp.Variable((polytope.num_hyperplanes), pos=True, name="gamma_0") # initial value of the gamma function
         self.r_var       : cp.Variable = cp.Variable( pos=True, name="robustness")  # robustness of the barrier function
@@ -891,12 +891,13 @@ class BarriersOptimizer:
             for barrier in self.barriers:
                 # cost      +=  10000*cp.exp(-cp.sum(barrier.r_var)/10)
                 cost      +=  -cp.sum(barrier.r_var)
-                slack_cost = slack_penalty * slack
-                problem    = cp.Problem(cp.Minimize(cost+slack_cost), constraints)
+            
+            slack_cost = slack_penalty * slack
+            problem    = cp.Problem(cp.Minimize(cost+slack_cost), constraints)
         else:
-            for barrier in self.barriers:
-                slack_cost = slack_penalty * slack
-                problem    = cp.Problem(cp.Minimize(cost+slack_cost), constraints)
+            
+            slack_cost = slack_penalty * slack
+            problem    = cp.Problem(cp.Minimize(cost+slack_cost), constraints)
 
 
         if self.given_k_gain < 0.:
@@ -948,7 +949,7 @@ class BarriersOptimizer:
             k_gain.value = self.given_k_gain
 
             try :
-                problem.solve(warm_start=True, verbose=False,solver="MOSEK")
+                problem.solve(warm_start=True, verbose=True,solver="MOSEK")
             except Exception as e :
                 print(f"Error in solving the problem with given k_gain {self.given_k_gain}. The error is the following")
                 raise e
@@ -1136,9 +1137,12 @@ def compute_polyhedral_constraints(formula      : Formula,
 
 class TimeVaryingConstraint:
     """
-        Representation of time-varying constraints in the form of H [x,t]  <= b.
-        The matrix H has dimension (p x dim+1) where p is the number of constraints
-        and dim is the state dimension. The constraint is expressed in space and time.
+    Representation of time-varying constraints in the form of H [x,t]  <= b.
+    The matrix H has dimension (p x dim+1) where p is the number of constraints
+    and dim is the state dimension. For a single integrator in 2D the state dimension
+    is 2 and thus the matrix H has dimension (p x 3) where the +1 is due to the 
+    presence of the time dimension. For a double integrator in 3D the state dimension
+    is 3 and thus the matrix H has dimension (p x 4). 
     """
 
     def __init__(self, start_time: float, end_time:float, H :np.ndarray, b:np.ndarray):
@@ -1148,6 +1152,8 @@ class TimeVaryingConstraint:
         self.end_time    :float       = end_time
         self.H           : np.ndarray = H
         self.b           : np.ndarray = b
+        self.system_dim  : int        = H.shape[1] - 1  # Last column is time, so subtract 1 for state dimensions
+        self.p           : int        = H.shape[0]  # Number of constraints
 
     def as_dict(self) -> dict:
         """
