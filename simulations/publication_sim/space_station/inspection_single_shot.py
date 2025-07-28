@@ -91,25 +91,25 @@ time_varying_constraints, robustness                   = compute_polyhedral_cons
 # for tvc in time_varying_constraints:
 #     tvc.plot3d(ax = ax, alpha =0.01,color = 'g')
 
-# rrt_planner     = StlRRTStar(start_state     = x_0,
-#                             system           = system,
-#                             prediction_steps = 5,
-#                             stl_constraints  = time_varying_constraints ,
-#                             map              = map,
-#                             max_input        = max_input,
-#                             max_iter         = 1000,
-#                             space_step_size  = 10,
-#                             rewiring_radius  = 25,
-#                             rewiring_ratio   = 5,
-#                             biasing_ratio    = 2)
+rrt_planner     = StlRRTStar(start_state     = x_0,
+                            system           = system,
+                            prediction_steps = 5,
+                            stl_constraints  = time_varying_constraints ,
+                            map              = map,
+                            max_input        = max_input,
+                            max_iter         = 1000,
+                            space_step_size  = 10,
+                            rewiring_radius  = 25,
+                            rewiring_ratio   = 5,
+                            biasing_ratio    = 2)
 
 
 
-# rrt_planner.plan()
-# fig,ax = rrt_planner.plot_rrt_solution(ax = ax, solution_only=False)
-# ax.view_init(elev=48, azim=143)
+rrt_planner.plan()
+fig,ax = rrt_planner.plot_rrt_solution(ax = ax, solution_only=False)
+ax.view_init(elev=48, azim=143)
 
-# rrt_planner.show_statistics()
+rrt_planner.show_statistics()
 
 
 plt.show()
