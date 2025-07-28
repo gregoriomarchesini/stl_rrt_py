@@ -941,9 +941,11 @@ class BarriersOptimizer:
                     k_gain.value = k_val
                     
                     try :
-                        problem.solve(warm_start=True, verbose=False, ignore_dpp=True,solver="MOSEK")
+                        problem.solve(warm_start=True, verbose=False, solver="MOSEK")
                         pbar.update(1)
-                    except :
+                    except Exception as e:
+                        print(f"Error in solving the problem with k_gain {k_val}. The error is the following")
+                        print(e)
                         pbar.update(1)
                         continue
                     if problem.status == cp.OPTIMAL and slack.value < 1E-5:
@@ -962,10 +964,10 @@ class BarriersOptimizer:
             if not good_k_found:
                 print("No good k found. Please increase the range of k. Returing k with minimum violation")
                 k_gain.value = best_k
-                problem.solve(warm_start=True, verbose=False, ignore_dpp=True, solver="MOSEK")
+                problem.solve(warm_start=True, verbose=False, solver="MOSEK")
             else:
                 k_gain.value = best_k
-                problem.solve(warm_start=True, verbose=False, ignore_dpp=True,solver="MOSEK")
+                problem.solve(warm_start=True, verbose=False ,solver="MOSEK")
         else:
             print("Given k_gain:",self.given_k_gain)
             k_gain.value = self.given_k_gain
