@@ -127,7 +127,7 @@ class BarrierFunction :
         
         elif t == self.time_grid[-1] :
             t_vector[:-1] = self.time_deltas[:-1]
-            t_vector[-1]  = -self.time_grid[-1]
+            t_vector[-1]  = -self.time_grid[-2]
         
             
         else : # if the time is in the range and it is not the last time in the grid then it will be contained in one of the intervals
@@ -805,9 +805,6 @@ class BarriersOptimizer:
         slack_penalty = 1E5
 
         constraints  :list[cp.Constraint]  = []
-        
-        # create big matrix of inputs
-        UU = cp.Variable((self.system.size_input, 2*num_vertices*(len(self.time_grid)-1)))                                         # spece of control input vertices
 
         # dynamic constraints
         for jj in range(len(self.time_grid)-1): # for each interval
@@ -823,7 +820,7 @@ class BarriersOptimizer:
             
             V_j            = np.hstack((vertices , vertices)) # space  vertices
             T_j            = np.hstack((s_j_vec, s_j_plus_1_vec)) # time vector for the vertices
-            U_j            = UU[:,jj*2*num_vertices:(jj+1)*2*num_vertices]                                         # spece of control input vertices
+            U_j            = cp.Variable((self.system.size_input, V_j.shape[1]))       
             dyn            = (A @ V_j + B @ U_j)  
             
             # Input constraints.
@@ -887,16 +884,12 @@ class BarriersOptimizer:
             gamma_at_beta_l = cp.vstack(gamma_at_beta_l) # gamma function for a given section
             D_at_beta_l     = cp.vstack(D_at_beta_l)     # D matrix
             c_at_beta_l     = cp.vstack(c_at_beta_l)     # c vector   
-
-            print(gamma_at_beta_l.shape)
-            print(D_at_beta_l.shape)
-            print(c_at_beta_l.shape)
             
             constraints += [D_at_beta_l @ zeta_l + c_at_beta_l +  gamma_at_beta_l >= epsilon ] # epsilon just to make sure the point is not at the boundary and it is strictly inside
         
         # set the zeta at beta=0 zero and conclude
         # initial state constraint
-        zeta_0       = zeta_vars[:,0]
+        zeta_0  = zeta_vars[:,0]
 
         D_0     = cp.vstack([barrier.D for barrier in self.barriers])
         c_0     = cp.hstack([barrier.c for barrier in self.barriers])
@@ -944,8 +937,6 @@ class BarriersOptimizer:
                         problem.solve(warm_start=True, verbose=False, solver="MOSEK")
                         pbar.update(1)
                     except Exception as e:
-                        print(f"Error in solving the problem with k_gain {k_val}. The error is the following")
-                        print(e)
                         pbar.update(1)
                         continue
                     if problem.status == cp.OPTIMAL and slack.value < 1E-5:
@@ -967,13 +958,13 @@ class BarriersOptimizer:
                 problem.solve(warm_start=True, verbose=False, solver="MOSEK")
             else:
                 k_gain.value = best_k
-                problem.solve(warm_start=True, verbose=False ,solver="MOSEK")
+                problem.solve(warm_start=True, verbose=False,solver="MOSEK")
         else:
             print("Given k_gain:",self.given_k_gain)
             k_gain.value = self.given_k_gain
 
             try :
-                problem.solve(warm_start=True, verbose=True, solver="MOSEK")
+                problem.solve(warm_start=True, verbose=True, ignore_dpp = True,solver="MOSEK")
             except Exception as e :
                 print(f"Error in solving the problem with given k_gain {self.given_k_gain}. The error is the following")
                 raise e
