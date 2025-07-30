@@ -1,12 +1,14 @@
 import numpy as np
 import cvxpy as cp
+import json
+import mosek.fusion as mf
+import mosek.fusion.pythonic
 
 from   typing     import Optional, Union
 from   matplotlib import pyplot as plt
 from   tqdm       import tqdm
-import json
-from scipy import sparse
-from multiprocessing import Pool
+from   scipy import sparse
+
 
 
 from .logic         import (Formula, 
@@ -34,6 +36,10 @@ class BarrierFunction :
 
     The function gamma is a piexe wise linear function of the form :math:`\gamma(t) = e \cdot t + g`.
     """
+    
+    M = mf.Model() 
+    
+    
     def __init__(self, polytope: Polyhedron, time_grid : list[float],flat_time : float) -> None:
         """
         Initialize the barrier function with a given polytope.
@@ -42,20 +48,18 @@ class BarrierFunction :
         :type polytope: Polytope
         """
         
-        self.polytope  : Polyhedron  = polytope
-        self.time_grid : list[float] = sorted(time_grid)
+        self.polytope           : Polyhedron  = polytope
+        self.time_grid          : list[float] = sorted(time_grid)
+        self.num_time_intervals : int         = len(time_grid) - 1 # number of time intervals
         
         self.time_deltas        : np.ndarray = np.array([time_grid[jj+1] - time_grid[jj] for jj in range(len(time_grid)-1)])
         self.num_time_intervals : int        = len(time_grid)-1
         self.flat_time          : float      = flat_time
         
 
-        self.slopes_var  : cp.Variable = cp.Variable((polytope.num_hyperplanes,len(time_grid)-1), neg= True)# one slope for each interval
-        self.gamma_0_var : cp.Variable = cp.Variable((polytope.num_hyperplanes), pos=True, name="gamma_0") # initial value of the gamma function
-        self.r_var       : cp.Variable = cp.Variable( pos=True, name="robustness")  # robustness of the barrier function
-        
-        
-        self.r_var.value = 100. # initial guess for the robustness
+        self.slopes_var   =  self.M.variable([polytope.num_hyperplanes,self.num_time_intervals], mf.Domain.lessThan(0.0)   )
+        self.gamma_0_var  =  self.M.variable([polytope.num_hyperplanes,1                     ] , mf.Domain.greaterThan(0.0))
+        self.r_var        =  self.M.variable(1                                                 , mf.Domain.greaterThan(0.0))
 
         self._D_high_order = None
         self._c_high_order = None
@@ -101,12 +105,12 @@ class BarrierFunction :
             raise ValueError("The time t is not in the time grid. Please check the time grid and the time t. The given time is " + str(t) + " and the time grid is " + str(self.time_grid))
         
         elif t == self.time_grid[-1] :
-            e = self.slopes_var[:,-1]
+            e = self.slopes_var[:,-1] # mosek preserves the correct column shape when slicing
 
         else : # if the time is in the range and it is not the last time in the grid then it will be contained in one of the intervals
             for jj in range(self.num_time_intervals):
                 if t< self.time_grid[jj+1] and t >= self.time_grid[jj]:
-                    e = self.slopes_var[:,jj]
+                    e = self.slopes_var[:,jj] # mosek preserves the correct column shape when slicing
                     break
         return e
 
@@ -118,7 +122,7 @@ class BarrierFunction :
         # to compute the value of gamma in matrix form as gamma_0 + slopes @ t_vector + e_n * t
 
         
-        t_vector = np.zeros((self.num_time_intervals,))
+        t_vector = np.zeros((self.num_time_intervals,1))
 
         if t < self.time_grid[0] or t > self.time_grid[-1]:
             raise ValueError("The time t is not in the time grid. Please check the time grid and the time t. The given time is " + str(t) + " and the time grid is " + str(self.time_grid))
@@ -137,7 +141,7 @@ class BarrierFunction :
                     t_vector[jj]  = -self.time_grid[jj]
                     break  
                 
-        g = self.gamma_0_var + self.slopes_var @ t_vector
+        g =  self.gamma_0_var +  self.slopes_var @ t_vector # it is a column
         
         return g
 
@@ -148,7 +152,7 @@ class BarrierFunction :
         """
 
 
-        return self.e_vector(t)*t + self.g_vector(t)
+        return self.e_vector(t)*t + self.g_vector(t) # it is a column
     
     def get_gamma_flat_constraint(self):
         
@@ -157,7 +161,7 @@ class BarrierFunction :
         if self.flat_time == self.time_grid[-1]:
             # it is an eventually task and so there is not flat region of the gamma
             gamma_flat = self.gamma_at_time(self.flat_time) 
-            constraints += [gamma_flat == -self.r_var] # eual to the robustness
+            self.M.constraint(gamma_flat == -self.r_var)        
         
         else:
 
@@ -170,8 +174,8 @@ class BarrierFunction :
             
 
             # Apply the flat slope constraint (slopes must be 0)
-            constraints += [flat_slopes == 0]
-            constraints += [self.gamma_at_time(flat_time_points[0])== -self.r_var] # just set the firt flat time to -r and the other ones will be naturally equal to -r for the flat constraints
+            self.M.constraint(flat_slopes == 0)
+            self.M.constraint(self.gamma_at_time(flat_time_points[0]) == -self.r_var) # just set the firt flat time to -r and the other ones will be naturally equal to -r for the flat constraints
         
         return constraints
     
@@ -638,8 +642,9 @@ class BarriersOptimizer:
         self.input_bounds      : Polyhedron                      = input_bound
         self.x_0               : np.ndarray                      = x_0
         self.minimize_r        : bool                            = minimize_robustness
-        self.given_k_gain      :float                            = k_gain
+        self.given_k_gain      : float                           = k_gain
         self.robustness        : float                           = 0. # initial guess for the robustness
+        self.mosek_model                                         = None
 
         self.barriers                          : list[BarrierFunction]       = []
         self.time_varying_polytope_constraints : list[TimeVaryingConstraint] = []
@@ -677,6 +682,8 @@ class BarriersOptimizer:
                 barrier = BarrierFunction(polytope = task.polytope, time_grid = time_grid_barrier, flat_time = task.beta_var.value)
 
             self.barriers.append(barrier)
+        
+        self.mosek_model = self.barriers[0].M # use the first barrier model as the main model for the optimization (it is a shared among all the barriers)
 
     
     def _make_high_order_corrections(self, system : ContinuousLinearSystem, k_gain : cp.Parameter) -> int:
@@ -716,12 +723,14 @@ class BarriersOptimizer:
         print("Correcting barriers for high order systems")
         print("================================================")
         for barrier in self.barriers :
-            D = barrier.D
-            c = barrier.c
+            
+            D            = barrier.D
+            c            = barrier.c
             right_order  = False
-            order = 0
+            order        = 0
 
             while not right_order : #(for controllable systems this will stop after at most a number of iterations equal to the state space)
+                
                 db = D@B
                 # if there is at least one row of all zeros then you must go on with the orders
                 any_uncontrollable_direction = False
@@ -735,15 +744,15 @@ class BarriersOptimizer:
                     order += 1
                     D = D@(A + I)
             
-
+            print(f"Found barrier function of order: {order}")
             if order == 0:
-                print(f"Found barrier function of order: {order}")
                 barrier.set_high_order_constraints(D,c)
             else:
-                print(f"Found barrier function of order: {order}")
-                D_high_order = barrier.D@cp.power(A + I*k_gain,order) 
-                c_high_order = cp.power(k_gain,order) * c
-                barrier.set_high_order_constraints(D_high_order, c_high_order)
+                raise NotImplementedError("High order corrections are not implemented yet. Please implement the high order corrections for the barrier function.")
+                
+                # D_high_order = barrier.D@cp.power(A + I*k_gain,order) 
+                # c_high_order = cp.power(k_gain,order) * c
+                # barrier.set_high_order_constraints(D_high_order, c_high_order)
             
         return order
 
@@ -786,22 +795,20 @@ class BarriersOptimizer:
 
 
         # integrate the alpha and beta switching times into the time grid (so time steps between switching times will not be homogenous)
-        k_gain     = cp.Parameter(pos=True) #! (when program fails try to increase control input and increase the k_gain. Carefully analyze the situation. Usually it should be at leat equal to 1.)
+        k_gain     = self.mosek_model.parameter() #! (when program fails try to increase control input and increase the k_gain. Carefully analyze the situation. Usually it should be at leat equal to 1.)
         order      = self._make_high_order_corrections(system = self.system, k_gain = k_gain)
         
 
         A             = self.system.A
         B             = self.system.B
-        slack         = cp.Variable(nonneg = True)
+        slack         = self.mosek_model.variable(mf.Domain.greaterThan(0.)) # slack variable for the dynamic constraints
         slack_penalty = 1E5
         
-        UU = cp.Variable((self.system.size_input, 2*num_vertices*num_intervals))  
-
-
-        constraints  :list[cp.Constraint]  = []
+        UU   = self.mosek_model.variable([self.system.size_input, 2*num_vertices*num_intervals]) # input variables for all vertices at time s_j
+        BB   = mf.Expr.hstack( [ self.input_bounds.b.reshape(-1,1) for _ in 2*num_vertices*num_intervals ] )
 
         # Input constraints.
-        constraints += [sparse.csc_matrix(self.input_bounds.A) @ UU <= self.input_bounds.b.reshape(-1,1)] # input constraints for all vertices at time s_j
+        self.mosek_model.constraint(self.input_bounds.A @ UU <= BB )
 
         # dynamic constraints
         print("Preparing Vertex constraints")
@@ -814,7 +821,6 @@ class BarriersOptimizer:
             U_j            = UU[:,jj*2*num_vertices:(jj+1)*2*num_vertices]     
             dyn            = (A @ V + B @ U_j)  
             
-            
             # Forward-invariance constraints. 
 
             ee = []
@@ -823,88 +829,87 @@ class BarriersOptimizer:
             gamma_gamma = []
             
             for active_task_index in self.active_barriers_map(s_j): # for each active task
-                barrier = self.barriers[active_task_index] 
-
-                D_high_order  =  barrier.D_high_order
-                # print sparisty
-                density = np.count_nonzero( D_high_order ) /  D_high_order.size
-                print(f"Sparsity density: {density:.6f}")
                 
                 
+                barrier       = self.barriers[active_task_index] 
+                D_high_order  = barrier.D_high_order
                 c_high_order  = barrier.c_high_order.reshape((-1,1))
 
-                gamma_s_j        = cp.hstack([barrier.gamma_at_time(s_j).reshape((-1,1))]*num_vertices) # gamma function for a given section
-                gamma_s_j_plus_1 = cp.hstack([barrier.gamma_at_time(s_j_plus_1).reshape((-1,1))]*num_vertices) # gamma function for a given section  
-                gamma            = cp.hstack([gamma_s_j, gamma_s_j_plus_1]) # gamma function for a given section 
+                gamma_s_j        = mf.Var.vstack([barrier.gamma_at_time(s_j).reshape((-1,1))]*num_vertices) # gamma function for a given section
+                gamma_s_j_plus_1 = mf.Var.vstack([barrier.gamma_at_time(s_j_plus_1).reshape((-1,1))]*num_vertices) # gamma function for a given section  
+                gamma            = mf.Var.vstack([gamma_s_j, gamma_s_j_plus_1]) # gamma function for a given section 
                 
-                e_s_j            = cp.hstack([barrier.e_vector(s_j).reshape((-1,1))]*num_vertices) # e vector for a given section
-                e_s_j_plus_1     = cp.hstack([barrier.e_vector(s_j_plus_1).reshape((-1,1))] * num_vertices) # e vector for a given section
-                e                = cp.hstack([e_s_j, e_s_j_plus_1]) # e vector for a given section
+                e_s_j            = mf.Var.vstack([barrier.e_vector(s_j).reshape((-1,1))]*num_vertices) # e vector for a given section
+                e_s_j_plus_1     = mf.Var.vstack([barrier.e_vector(s_j_plus_1).reshape((-1,1))] * num_vertices) # e vector for a given section
+                e                = mf.Var.vstack([e_s_j, e_s_j_plus_1]) # e vector for a given section
                    
                 ee.append(e)
                 DD.append(D_high_order)
                 cc.append(c_high_order)
                 gamma_gamma.append(gamma)
 
-            ee    = cp.vstack(ee) # e vector for a given section
-            DD    = cp.vstack(DD) # D matrix for a given section
-            cc    = cp.vstack(cc) # c vector for a given section
-            gamma_gamma = cp.vstack(gamma_gamma) # gamma function for a given section
+            ee          = mf.Var.vstack(ee) # e vector for a given section
+            DD          = mf.Var.vstack(DD) # D matrix for a given section
+            cc          = mf.Var.vstack(cc) # c vector for a given section
+            gamma_gamma = mf.Var.vstack(gamma_gamma) # gamma function for a given section
                 
-            constraints  += [DD @ dyn + ee + k_gain * (DD @ V + cc + gamma_gamma ) + slack >= 0]
+            # constraints  += [DD @ dyn + ee + k_gain * (DD @ V + cc + gamma_gamma ) + slack >= 0]
+            self.mosek_model.constraint(DD @ dyn + ee + k_gain * (DD @ V + cc + gamma_gamma ) + slack >= 0) # dynamic constraints for all vertices at time s_j
+
                     
 
         # Add flatness constraint
         for barrier in self.barriers:
-            constraints += barrier.get_gamma_flat_constraint()
+            barrier.get_gamma_flat_constraint()
 
         # Inclusion constraints
         betas        = list({ barrier.time_grid[-1] for barrier in self.barriers} | {0.}) # set inside the list removes duplicates if any.
         betas        = sorted(betas)
         
         epsilon    = 1E-3
-        zeta_vars  = cp.Variable(( x_dim, len(betas)))
+        # zeta_vars  = cp.Variable(( x_dim, len(betas)))
+        zeta_vars  = self.mosek_model.variable((x_dim, len(betas))) # zeta variables for all vertices at time beta_l (beta_l is the last time of the barrier function)
         
         # inclusion constraints for all vertices at time beta_0 (beta_0 is the first time of the barrier function)
         # constraints  += [self.workspace.A @   zeta_vars[:,1:] <= self.workspace.b.reshape(-1,1)] # inclusion constraints for all vertices at time beta_l (beta_l is the last time of the barrier function)
         
         for l in range(1,len(betas)):
             beta_l = betas[l]
-            zeta_l = zeta_vars[:,l].reshape((-1,1)) # zeta at time beta_l
+            zeta_l = zeta_vars[:,l]
 
             gamma_at_beta_l = []
             D_at_beta_l     = []
             c_at_beta_l     = [] 
 
             for l_tilde in self.active_barriers_map(betas[l-1]) : # barriers active at lim t-> - beta_l is equal to the one active at time beta_{l-1}
-                gamma_at_beta_l.append(self.barriers[l_tilde].gamma_at_time(beta_l-0.00001).reshape((-1,1)) )# gamma function for a given section
+                gamma_at_beta_l.append(self.barriers[l_tilde].gamma_at_time(beta_l-0.00001))# gamma function for a given section
                 D_at_beta_l.append(self.barriers[l_tilde].D  )
-                c_at_beta_l.append(self.barriers[l_tilde].c.reshape((-1,1)))# c vector
+                c_at_beta_l.append(self.barriers[l_tilde].c)# c vector
 
-            gamma_at_beta_l = cp.vstack(gamma_at_beta_l) # gamma function for a given section
-            D_at_beta_l     = cp.vstack(D_at_beta_l)    # D matrix
-            c_at_beta_l     = cp.vstack(c_at_beta_l)     # c vector   
+            gamma_at_beta_l = mf.Var.vstack(gamma_at_beta_l) # gamma function for a given section
+            D_at_beta_l     = mf.Var.vstack(D_at_beta_l    )    # D matrix
+            c_at_beta_l     = mf.Var.vstack(c_at_beta_l    )     # c vector   
             
-            constraints += [D_at_beta_l @ zeta_l + c_at_beta_l +  gamma_at_beta_l >= epsilon ] # epsilon just to make sure the point is not at the boundary and it is strictly inside
+            self.mosek_model.constraint(D_at_beta_l @ zeta_l + c_at_beta_l +  gamma_at_beta_l >= epsilon)
         
         # set the zeta at beta=0 zero and conclude
         # initial state constraint
         zeta_0  = zeta_vars[:,0]
 
-        D_0     = cp.vstack([barrier.D for barrier in self.barriers])
-        c_0     = cp.hstack([barrier.c for barrier in self.barriers])
-        gamma_0 = cp.hstack([barrier.gamma_0_var for barrier in self.barriers])
+        D_0     = mf.Var.vstack([barrier.D for barrier in self.barriers]          )
+        c_0     = mf.Var.vstack([barrier.c for barrier in self.barriers]          )
+        gamma_0 = mf.Var.vstack([barrier.gamma_0_var for barrier in self.barriers])
 
-        constraints += [D_0 @ zeta_0 + c_0 + gamma_0 >= epsilon]
+        self.mosek_model.constraint(D_0 @ zeta_0 + c_0 + gamma_0 >= epsilon)
 
-        
         # initial state constraint
-        constraints += [zeta_0 == x_0]
+        self.mosek_model.constraint(zeta_0 == x_0)
 
         # create problem and solve it
         cost = 0.
         if self.minimize_r:
-            all_r = cp.hstack([barrier.r_var for barrier in self.barriers])  # shape (d, K)
+            all_r = mf.Var.stack([barrier.r_var for barrier in self.barriers], dim=0)  # shape (d, K)
+            
             cost += -cp.sum(all_r)
             
             slack_cost = slack_penalty * slack
