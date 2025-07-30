@@ -43,27 +43,28 @@ class PredicateNode(Node):
     """
     Predicate Node of the formula tree. It stores the polytope defining the predicate and the dimensions of the state space that define such polytope.
     """
-    def __init__(self, polytope: Polyhedron, dims : list[int]|int, name:str | None = None) -> None:
+    def __init__(self, polytope: Polyhedron, output_matrix : np.ndarray, name:str | None = None) -> None:
         """
         :param polytope: Polytope defining the predicate
         :type polytope: Polytope
-        :param dims: dimensions of the state space that define the predicate. These are equal to the dimensions of the polytope.
-        :type dims: list[int]
+        :param output_matrix: Output matrix of the predicate (e.g. for a linear system this is the matrix C in the state space representation x_dot = Ax + Bu, y = Cx + Du)
+        :type output_matrix: np.ndarray
         :param name: name of the predicate
         :type name: str
         """
 
         self.parent               : "OperatorNode" |None    = None
-        self.polytope             : Polyhedron                = polytope
+        self.polytope             : Polyhedron              = polytope
+        self.output_matrix        : np.ndarray              = output_matrix
+        
+        # check the output matrix 
+        # The polyhedron is defined as Ax <= b, but if you want the polyhedron to be defined on an output y = Cx then 
+        # the matrix C must be consistent with the matrix A
+        
 
-        if isinstance(dims, int):
-            dims = [dims]
-        self.dims                : list[int]               = dims
-
-        if len(dims) != polytope.A.shape[1]:
-            raise ValueError("The list of dimensions to which the polytope is applied must be equal to the number of dimensions of the polytope e.g. " +
-                            f"if the polytope is 4 dimensional then there must be 4 dimensions in the list. Given {len(dims)} dimensions and {polytope.A.shape[1]} dimensions in the polytope")
-
+        if output_matrix.shape[0] != polytope.A.shape[1]:
+            raise ValueError(f"The output matrix must have dimension compatible with the given predicate polyhedron such that the final predicate is given as ACx <= b. Given output matrix shape: {output_matrix.shape} and polyhedron A shape: {polytope.A.shape}")
+        
 
         Node.__init__(self)  
         
@@ -263,7 +264,7 @@ def deepcopy_predicate_node(node: Node) -> Node:
     """ Go down the tree and duplicate the poredicates which coudl be shared among different branches"""
 
     if isinstance(node, PredicateNode):
-        return PredicateNode(node.polytope, dims=node.dims, name= node.name)
+        return PredicateNode(node.polytope, output_matrix= node.output_matrix, name= node.name)
     
     else:
         if isinstance(node,UOp):
@@ -287,13 +288,20 @@ def deepcopy_predicate_node(node: Node) -> Node:
 
 class Formula:
     """Stl formula tree"""
-    def __init__(self,root = Node) -> None:
-        self._root = root
+    def __init__(self,root : Node | None = None) -> None:
+        self._root = root # if None then it is an empty formula.
 
 
     @property
     def root(self):
         return self._root
+    
+    @property
+    def is_null(self):
+        """
+        Check if the formula is null (i.e. it has no root)
+        """
+        return self._root is None
     
 
     def __and__(self, formula : "Formula"):
@@ -329,6 +337,13 @@ class Formula:
             root_self    = self.root
             return Formula(root = AndOperator(*root_self.children,root_formula))
         
+        # empty formulas cases
+        elif self.is_null :
+            return formula
+        
+        elif formula.is_null :
+            return self
+        
         # case 4: conjunction of two formulas with root given by other operators 
         # sol  : create a new formula with the AND operator as root and the two formulas as children.
         else:
@@ -362,7 +377,13 @@ class Formula:
             root_self    = self.root
             return Formula(root = OrOperator(*root_self.children,root_formula))
         
-    
+        # empty formulas cases
+        elif self.is_null:
+            return formula
+        
+        elif formula.is_null:
+            return self
+        
         else:
             root_self    = deepcopy_predicate_node(self.root)
             root_formula = deepcopy_predicate_node(formula.root)
@@ -438,10 +459,18 @@ class Formula:
             # not-not removes the not
             new_formula = Formula(root = self.root.children[0])
             return new_formula
+           
+        # empty formulas cases
+        elif self.is_null:
+            return self
+        
         else:
             raise ValueError("The formula must be either a predicate or an operator")
 
     def __lshift__(self, until_operator : "UOp") :
+
+        if self.is_null :
+            raise ValueError("The left formula must be defined before the right formula, The until operator is binary operator and it needs a left and right hand side formula which are not null formulas")
 
         until_operator.left_node = self.root
         return  until_operator # you return just an operator node which is not a formula! should give an error if combined with other formulas
@@ -452,6 +481,8 @@ class Formula:
         """
         Check if the formula has temporal operators
         """
+        if self.is_null:
+            return False
 
         def recursive_has_temporal_operators(node : Node):
             if isinstance(node, GOp) or isinstance(node, FOp) or isinstance(node, UOp):
@@ -472,6 +503,9 @@ class Formula:
         """
         Get the horizon time of the formula
         """
+        if self.is_null:
+            return 0
+        
         def recursive_horizon_time_of_formula(node : Node):
 
             # base case (predicate node):
@@ -504,7 +538,9 @@ class Formula:
         """
         Check if the formula contains disjunctions
         """
-
+        if self.is_null:
+            return False
+        
         def recursive_contains_disjunction(node):
             if isinstance(node, OrOperator):
                 return True
@@ -520,15 +556,20 @@ class Formula:
         
         return recursive_contains_disjunction(self.root)
     
-    def formula_depth(self):
+    def formula_depth(self) -> int:
+        
+        if self.is_null:
+            return 0
         
         recursive_formula_depth = lambda node: 1 + max([recursive_formula_depth(child) for child in node.children]) if len(node.children) else 1
         return recursive_formula_depth(self.root)
         
-    def max_num_children(self):
+    def max_num_children(self) -> int:
         """
         Get the maximum number of children of the formula
         """
+        if self.is_null:
+            return 0
 
         def recursive_max_num_children(node):
             if len(node.children) == 0:
@@ -669,6 +710,9 @@ class Formula:
         """
         Get the predicates of the formula
         """
+
+        if self.is_null:
+            return {}
     
         def recursive_get_predicates(node: Node):
             if isinstance(node, PredicateNode):
@@ -686,7 +730,7 @@ class Predicate(Formula) :
     """
     Wrapper class to create a predicate formula from a polytope.
     """
-    def __init__(self, polytope: Polyhedron, dims:list[int]|int , name: str | None = None) -> None:
+    def __init__(self, polytope: Polyhedron, output_matrix : np.ndarray , name: str | None = None) -> None:
         """
         
         :param polytope: Polytope defining the predicate
@@ -696,7 +740,7 @@ class Predicate(Formula) :
         :param name: name of the predicate
         :type name: str
         """
-        super().__init__(root = PredicateNode(polytope = polytope , dims = dims , name = name))
+        super().__init__(root = PredicateNode(polytope = polytope , output_matrix = output_matrix , name = name))
 
     @property
     def polytope(self) -> Polyhedron:
@@ -705,11 +749,12 @@ class Predicate(Formula) :
         """
         return self.root.polytope
     @property
-    def dims(self)-> list[int]:
+    def output_matrix(self) -> np.ndarray:
         """
-        Get the dimensions of the predicate node
+        Get the output matrix of the predicate node
         """
-        return self.root.dims
+        return self.root.output_matrix
+    
     @property
     def name(self) -> str:
         """
@@ -717,47 +762,47 @@ class Predicate(Formula) :
         """
         return self.root.name
     
-    def __add__(self, other:"Predicate") -> "Predicate" :
-        """
-        Cartesian product of two polytopes using the '+' operator.
+    # def __add__(self, other:"Predicate") -> "Predicate" :
+    #     """
+    #     Cartesian product of two polytopes using the '+' operator.
         
-        :param other: Another Polytope object to combine with.
-        :type other: Polytope
-        :return: A new Polytope object representing the Cartesian product.
-        :rtype: Polytope
-        """
+    #     :param other: Another Polytope object to combine with.
+    #     :type other: Polytope
+    #     :return: A new Polytope object representing the Cartesian product.
+    #     :rtype: Polytope
+    #     """
 
-        if not isinstance(other, Predicate):
-            raise ValueError(f"Cannot add {type(other)} to BoxBound. Only BoxBound is supported.")
+    #     if not isinstance(other, Predicate):
+    #         raise ValueError(f"Cannot add {type(other)} to Predicate. Only Predicate is supported.")
         
-        old_polytope = self.polytope
-        new_polytope = old_polytope.cross(other.polytope)
+    #     old_polytope = self.polytope
+    #     new_polytope = old_polytope.cross(other.polytope)
 
-        # shift dimensions of the other polytope
-        new_dims = self.dims + [d + len(self.dims) for d in other.dims]
+    #     # shift dimensions of the other polytope
+    #     new_dims = self.dims + [d + len(self.dims) for d in other.dims]
 
-        name = f"{self.name} + {other.name}" if self.name and other.name else None
-        return Predicate(polytope=new_polytope, dims=new_dims, name=name)
+    #     name = f"{self.name} + {other.name}" if self.name and other.name else None
+    #     return Predicate(polytope=new_polytope, dims=new_dims, name=name)
 
-    def __radd__(self, other:"Predicate") -> "Predicate" :
-        """
-        Cartesian product of two polytopes using the '+' operator.
+    # def __radd__(self, other:"Predicate") -> "Predicate" :
+    #     """
+    #     Cartesian product of two polytopes using the '+' operator.
         
-        :param other: Another Polytope object to combine with.
-        :type other: Polytope
-        :return: A new Polytope object representing the Cartesian product.
-        :rtype: Polytope
-        """
+    #     :param other: Another Polytope object to combine with.
+    #     :type other: Polytope
+    #     :return: A new Polytope object representing the Cartesian product.
+    #     :rtype: Polytope
+    #     """
 
-        if not isinstance(other, Predicate):
-            raise ValueError(f"Cannot add {type(other)} to BoxBound. Only BoxBound is supported.")
+    #     if not isinstance(other, Predicate):
+    #         raise ValueError(f"Cannot add {type(other)} to BoxBound. Only BoxBound is supported.")
         
-        old_polytope = other.polytope
-        new_polytope = old_polytope.cross(self.polytope)
-        # shift dimensions of self
-        new_dims = other.dims + [d + len(other.dims) for d in self.dims]
-        name = f"{other.name} + {self.name}" if self.name and other.name else None
-        return Predicate(polytope=new_polytope, dims=new_dims, name=name)
+    #     old_polytope = other.polytope
+    #     new_polytope = old_polytope.cross(self.polytope)
+    #     # shift dimensions of self
+    #     new_dims = other.dims + [d + len(other.dims) for d in self.dims]
+    #     name = f"{other.name} + {self.name}" if self.name and other.name else None
+    #     return Predicate(polytope=new_polytope, dims=new_dims, name=name)
 
 def get_fomula_type_and_predicate_node(formula : Formula ) -> tuple[str,PredicateNode] :
 
@@ -797,7 +842,7 @@ def get_fomula_type_and_predicate_node(formula : Formula ) -> tuple[str,Predicat
                 predicate_node = root_node.children[0].children[0]
                 return "FG", predicate_node
     
-    raise ValueError("The given formula is not part of the STL syntax currently supported. Until operator is coming. Please verify the fragment you are using. The fomula should be a conjunction of subformulas of type G, F, GF or FG")
+    raise ValueError("The given formula is either a conjunction, a disjunction or a a formulaa containing the Until operator. Please provide a formula of type Gp, Fp, GFp or FGp where p is the predicate node.")  
 
 
 # if __name__ == "__main__":

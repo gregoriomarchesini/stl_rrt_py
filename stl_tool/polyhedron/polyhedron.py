@@ -21,22 +21,66 @@ class Polyhedron:
         """
         
        
-        b = b.flatten()
+        b      = b.flatten()
         self.A = A 
         self.b = b 
 
         # Convert A and b into CDDlib format (H-representation)
         mat          = np.hstack([b.reshape(-1, 1), -A])
         self.cdd_mat = cdd.matrix_from_array(mat, rep_type=cdd.RepType.INEQUALITY)
-        self.poly    = cdd.polyhedron_from_matrix(self.cdd_mat)
+        self.poly    = None 
         
         
         self._is_open  :bool         = None  # defines if the given polytope is open (thus a polyhedra)
         self._vertices :np.ndarray   = None  # vertices are enumarated along the rows
         self._rays     :np.ndarray   = None  # rays are enumarated along the rows
 
+    @staticmethod
+    def hypercube(n_dim:int,  size:float|list[float], center:np.ndarray = None) -> None:
+        """
+        Initialize a box in nD space. The size and center length must match the number of dimensions. The size can be a simple float, in this case the box will have save width in all dimensions.
+        
+        :param n_dim: Number of dimensions of the box
+        :type n_dim: int
+        :param size: Size of the box. If a single value is provided, it is used for all dimensions.
+        :type size: float or list[float]
+        :param center: Center of the box. If None, it is set to the origin.
+        :type center: np.ndarray
+        """
+
+        if center is None:
+            center = np.zeros(n_dim)
+            
+        
+        
+        
+        if isinstance(size, (int, float)):
+            size = np.array([size] * n_dim)
+        else:
+            size = np.array(size)
+
+        # check dimensions 
+        if len(size) != n_dim:
+            raise ValueError(f"size should be of length {n_dim}. Given : {len(size)}")
+        # check center dimensions
+        if len(center) != n_dim:
+            raise ValueError(f"center should be of length {n_dim}. Given : {len(center)}")
         
 
+        # create the polytope
+        A = np.vstack((np.eye(n_dim), -np.eye(n_dim)))
+        b = np.hstack((size,size)) / 2 + A @ center
+
+        polyhedron = Polyhedron(A, b)
+
+        # we preset these attributed so that they do not require expensive comptations
+        polyhedron._is_open = False  # A box is not open, it is closed
+        polyhedron._vertices = fast_hypercube_vertices(n_dim=n_dim, center=center, size=size)
+        polyhedron._rays     = np.empty((0, n_dim))  # No rays for a box
+
+        return polyhedron
+
+        
     @property
     def num_hyperplanes(self):
         """
@@ -143,6 +187,10 @@ class Polyhedron:
         """
         Computes vertices and rays of the polytope. If rays are present then the polytope is declared as open (a polyhedron)
         """
+
+        if self.poly is None:
+            self.poly =  cdd.polyhedron_from_matrix(self.cdd_mat)
+
         generators_lib = cdd.copy_generators(self.poly)
         generators     = np.array(generators_lib.array)
         linearities    = np.array(list(generators_lib.lin_set)) # It tells which rays are allowed to be also negative (https://people.inf.ethz.ch/fukudak/cdd_home/cddlibman2021.pdf) pp. 4
@@ -167,6 +215,7 @@ class Polyhedron:
         # cache vertices and rays to save computation
         self._vertices = vertices
         self._rays     = rays
+
         
 
     def volume(self):
@@ -837,6 +886,40 @@ def selection_matrix_from_dims(n_dims :int , selected_dims : list[int]|int ) :
         selection_matrix[i, dim] = 1
 
     return selection_matrix
+
+
+def fast_hypercube_vertices(n_dim, center=None, size=1.0):
+    """
+    Computes the 2^n vertices of an n-dimensional axis-aligned hypercube.
+
+    Args:
+        n_dim  : int, number of dimensions
+        center : array-like or None, shape (n_dim,), center of the hypercube
+        size   : float or array-like of shape (n_dim,), edge length(s) of the cube along each dimension
+
+    Returns:
+        (2^n, n_dim) array of vertices
+    """
+    num_vertices = 2 ** n_dim
+
+    # Binary representation of vertex sign patterns (0/1)
+    bits = (np.arange(num_vertices, dtype=np.uint32)[:, None] >> np.arange(n_dim)) & 1
+    signs = 2 * bits - 1  # map 0→-1, 1→+1
+
+    # Handle center and size
+    if center is None:
+        center = np.zeros(n_dim)
+    else:
+        center = np.asarray(center).reshape(-1)
+
+    if np.isscalar(size):
+        scale = np.full(n_dim, size / 2.0)
+    else:
+        size = np.asarray(size).reshape(-1)
+        assert size.shape == (n_dim,), "`size` must be scalar or array of shape (n_dim,)"
+        scale = size / 2.0
+
+    return center + signs * scale
 
 
 if __name__ == "__main__":

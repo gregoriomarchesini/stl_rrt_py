@@ -4,7 +4,7 @@ np.random.seed(3)
 
 from stl_tool.stl                     import (GOp, 
                                               FOp, 
-                                              BoxBound, 
+                                              BoxPredicate, 
                                               ISSDeputy,
                                               compute_polyhedral_constraints,
                                               TimeVaryingConstraint)
@@ -47,19 +47,19 @@ input_bounds  = Box3d(x = 0.,y = 0.,z=0.,size = max_input*2)
 ##########################################################
 box_size = 70
 interest_point_1_center  = np.array([-100., 100., 0.])
-box_predicate_1          =  BoxBound(dims = [0,1,2], size = box_size, center = interest_point_1_center)
+box_predicate_1          =  BoxPredicate(dims = [0,1,2], size = box_size, center = interest_point_1_center)
 visit_time1              = 1000.
 
 interest_point_2_center  = np.array([-100., -100., 0.])
-box_predicate_2          =  BoxBound(dims = [0,1,2], size = box_size, center = interest_point_2_center)
+box_predicate_2          =  BoxPredicate(dims = [0,1,2], size = box_size, center = interest_point_2_center)
 visit_time2               = 2500.
 
 interest_point_4_center  = np.array([0., 0., 100.])
-box_predicate_4          =  BoxBound(dims = [0,1,2], size = box_size, center = interest_point_4_center)
+box_predicate_4          =  BoxPredicate(dims = [0,1,2], size = box_size, center = interest_point_4_center)
 visit_time4              = 3500.
 
 interest_point_3_center  = np.array([100., 100., 0.])
-box_predicate_3          =  BoxBound(dims = [0,1,2], size = box_size, center = interest_point_3_center)
+box_predicate_3          =  BoxPredicate(dims = [0,1,2], size = box_size, center = interest_point_3_center)
 visit_time3              = 5000.
 
 visit_period             = 400

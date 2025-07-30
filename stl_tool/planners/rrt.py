@@ -8,6 +8,7 @@ from   mpl_toolkits.mplot3d.art3d import Line3DCollection
 from   scipy.spatial   import KDTree
 from   scipy.interpolate import BSpline
 import time
+import traceback
 
 from ..openmpc.mpc     import TimedMPC, MPCProblem
 from ..openmpc.models  import LinearSystem
@@ -19,6 +20,7 @@ from stl_tool.environment.map         import Map
 from stl_tool.polyhedron              import Polyhedron,selection_matrix_from_dims
 from stl_tool.stl.parameter_optimizer import TimeVaryingConstraint
 from stl_tool.stl.linear_system       import ContinuousLinearSystem
+
 
 
 
@@ -389,7 +391,7 @@ class StlRRTStar :
                 #  Get trajectory between `from_node` and `to_node` in time `t_max`
                 x_trj, u_trj, new_final_time = self.rewire_controllers[number_of_nodes_difference].get_state_and_control_trajectory(x0 = last_node_state ,t0 = last_node_time, reference = neighbour_state)
             except Exception as e:
-                raise Exception(f"Error in rewiring at iteration {self.iteration}, with exception: {e}")
+                raise Exception(f"Error in rewiring at iteration {self.iteration}, with exception: {traceback.format_exc()}")
                 
             actual_new_cost  = self.cost[last_node_index]
             neighbour_time   = new_final_time
@@ -421,7 +423,7 @@ class StlRRTStar :
             except Exception as e:
                 self.failed_steering_count += 1
                 if self.verbose:
-                    print(f"Error in planning at iteration {iteration}, with exception: {e}")
+                    print(f"Error in planning at iteration {iteration}, with exception: {traceback.format_exc()}")
                 continue
             
 
@@ -434,7 +436,7 @@ class StlRRTStar :
                     except Exception as e:
                         self.failed_rewiring_count += 1
                         if self.verbose:
-                            print(f"Error in rewiring at iteration {iteration}, with exception: {e}")
+                            print(f"Error in rewiring at iteration {iteration}, with exception: {traceback.format_exc()}")
                         continue       
         
         self.solutions = self.get_solutions()
@@ -475,9 +477,6 @@ class StlRRTStar :
                      "best_sol_clock_time" : best_solution["clock_time"],
                      "first_sol_cost"      : self.solutions[0]["cost"],
                      "first_sol_clock_time" : self.solutions[0]["clock_time"],}
-        
-        
-        
         
         
         

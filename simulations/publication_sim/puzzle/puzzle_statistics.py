@@ -6,7 +6,7 @@ np.random.seed(3)
 from stl_tool.stl                     import (GOp, 
                                               FOp, 
                                               ContinuousLinearSystem, 
-                                              BoxBound2d,
+                                              BoxPredicate2d,
                                               compute_polyhedral_constraints,
                                               TimeVaryingConstraint)
 from stl_tool.environment             import Map
@@ -26,7 +26,7 @@ map           = Map(workspace = workspace)
 # load obstacles 
 file_path = os.path.join(os.path.dirname(__file__), "map2d.json")
 map_json = loads(open(file_path,mode="r").read())
-map.read_from_json(file_path)
+map.read_obstacles_from_json(file_path)
 map.draw() # draw if you want :)
 map.enlarge_obstacle(border_size=0.2) # enlarge obstacles
 
@@ -48,20 +48,20 @@ named_map = {item["name"]: item for item in map_json}
 
 # first interest point
 intrest_point = named_map["interest_2"]
-p1 = BoxBound2d(size = intrest_point["size_x"], center = np.array([intrest_point["center_x"], intrest_point["center_y"]]), name = "interest_1")
+p1 = BoxPredicate2d(size = intrest_point["size_x"], center = np.array([intrest_point["center_x"], intrest_point["center_y"]]), name = "interest_1")
 # second interest point
 intrest_point = named_map["interest_6"]
-p2 = BoxBound2d(size = intrest_point["size_x"], center = np.array([intrest_point["center_x"], intrest_point["center_y"]]), name = "interest_2")
+p2 = BoxPredicate2d(size = intrest_point["size_x"], center = np.array([intrest_point["center_x"], intrest_point["center_y"]]), name = "interest_2")
 # third interest point
 intrest_point = named_map["interest_3"]
-p3 = BoxBound2d(size = intrest_point["size_x"], center = np.array([intrest_point["center_x"], intrest_point["center_y"]]), name = "interest_3")
+p3 = BoxPredicate2d(size = intrest_point["size_x"], center = np.array([intrest_point["center_x"], intrest_point["center_y"]]), name = "interest_3")
 
 intrest_point = named_map["interest_4"]
-p4 = BoxBound2d(size = intrest_point["size_x"], center = np.array([intrest_point["center_x"], intrest_point["center_y"]]), name = "interest_3")
+p4 = BoxPredicate2d(size = intrest_point["size_x"], center = np.array([intrest_point["center_x"], intrest_point["center_y"]]), name = "interest_3")
 
 # charging_station 
 intrest_point = named_map["charging_station"]
-c_station     = BoxBound2d(size = intrest_point["size_x"], center = np.array([intrest_point["center_x"], intrest_point["center_y"]]), name = "charging_station")
+c_station     = BoxPredicate2d(size = intrest_point["size_x"], center = np.array([intrest_point["center_x"], intrest_point["center_y"]]), name = "charging_station")
 
 formula1       =  (FOp(20,25) >> p1)  & (FOp(150,155) >> p2) & (GOp(0.01,200) >>  (FOp(0,140) >> c_station)) & (GOp(260,265) >> p3)
 formula2       =  (FOp(20,25) >> p2)  & (FOp(150,155) >> p3) & (GOp(0.01,200) >>  (FOp(0,140) >> c_station)) & (GOp(260,265) >> p1)

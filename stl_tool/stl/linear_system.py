@@ -154,3 +154,26 @@ class ISSDeputy(ContinuousLinearSystem):
         ])
         
         return A, B
+
+
+
+def output_matrix(dims :list[int]|int, state_dim : int) :
+    """
+    From a given set of dimensions it returns the selction matrix (output matrix) that selects the elements at the given 
+    dimensions. For example, for a vector of dimension 5, the list dims = [0,2] will return a matrix of size 5x2 that selects the first and third element of the vector.
+    
+    :param dims: list of dimensions to select
+    :type dims: list[int]|int
+    :param state_dim: dimension of the state space
+    :type state_dim: int
+    :return: output matrix
+    :rtype: np.ndarray
+    """
+    
+    if isinstance(dims, int):
+        dims = [dims]
+    
+    if any(d < 0 or d >= state_dim for d in dims):
+        raise ValueError(f"Dimensions {dims} are out of range for the system with size {state_dim}")
+    
+    return np.eye(state_dim)[dims,:]

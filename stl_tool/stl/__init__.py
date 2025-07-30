@@ -1,8 +1,8 @@
 from stl_tool.stl.logic import FOp, GOp, UOp, Predicate, Formula
 from stl_tool.stl.linear_system import ContinuousLinearSystem,ISSDeputy,SingleIntegrator3d
 
-from stl_tool.stl.parameter_optimizer import TaskScheduler,BarriersOptimizer, TimeVaryingConstraint, compute_polyhedral_constraints
-from stl_tool.stl.predicate_models    import BoxBound,IcosahedronPredicate, BoxBound2d,BoxBound3d, RegularPolygonPredicate2D
+from stl_tool.stl.parameter_optimizer import TaskScheduler,BarriersOptimizer, TimeVaryingConstraint, compute_polyhedral_constraints, MultiAgentSystem
+from stl_tool.stl.predicate_models    import BoxPredicate,IcosahedronPredicate, BoxPredicate2d,BoxPredicate3d, RegularPolygonPredicate2D
 
 
 __all__ = [
@@ -12,15 +12,16 @@ __all__ = [
     "ContinuousLinearSystem",
     "TaskScheduler",
     "BarriersOptimizer",
-    "BoxBound",
+    "BoxPredicate",
     "ISSDeputy",
     "SingleIntegrator3d",
     "Predicate",
     "Formula",
     "IcosahedronPredicate",
-    "BoxBound2d",
-    "BoxBound3d",
+    "BoxPredicate2d",
+    "BoxPredicate3d",
     "RegularPolygonPredicate2D",
     "TimeVaryingConstraint",
     "compute_polyhedral_constraints",
+    "MultiAgentSystem",
 ]
