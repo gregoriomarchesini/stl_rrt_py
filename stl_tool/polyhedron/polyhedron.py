@@ -918,8 +918,10 @@ def fast_hypercube_vertices(n_dim, center=None, size=1.0):
         size = np.asarray(size).reshape(-1)
         assert size.shape == (n_dim,), "`size` must be scalar or array of shape (n_dim,)"
         scale = size / 2.0
-
-    return center + signs * scale
+    
+    vertices = center + signs * scale
+    
+    return vertices
 
 
 if __name__ == "__main__":

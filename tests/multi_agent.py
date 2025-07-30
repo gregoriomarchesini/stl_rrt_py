@@ -12,7 +12,7 @@ import os
 
 
 # select the number of agents
-num_agents = 8
+num_agents = 6
 agent_dim  = 2 # don't touch this
 
 ##########################################################
@@ -39,8 +39,26 @@ multi_agent_system.add_edge_task(agent1    = 0,
                                  task_type ="G",
                                  start     = 10,
                                  end       = 20,
-                                 center    = np.array([0.0, 0.0]),
+                                 center    = np.zeros(agent_dim),
                                  size      = 2.0,)
+
+multi_agent_system.add_edge_task(agent1    = 2, 
+                                 agent2    = 3,
+                                 task_type ="G",
+                                 start     = 10,
+                                 end       = 20,
+                                 center    = np.zeros(agent_dim),
+                                 size      = 2.0,)
+
+multi_agent_system.add_edge_task(agent1    = 1, 
+                                 agent2    = 3,
+                                 task_type ="G",
+                                 start     = 10,
+                                 end       = 20,
+                                 center    = np.zeros(agent_dim),
+                                 size      = 2.0,)
+
+
 
 
 

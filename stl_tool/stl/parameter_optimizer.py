@@ -542,7 +542,7 @@ class TaskScheduler:
                     pj = task_j.polytope
 
                     if time_interval_i / time_interval_j is not None:
-                        if self.distance(pi,pj) > 0.:
+                        if self.distance(pi,pj) > 1E-4:
                             message = (f"Found conflicting conjunctions: A task of type G_[a,b]\mu is conflicting with a task of type G_[a',b']\mu" +
                                         "The interval of the tasks is intersectinig ")
                             raise Exception(message)
@@ -716,10 +716,10 @@ class BarriersOptimizer:
         print("Correcting barriers for high order systems")
         print("================================================")
         for barrier in self.barriers :
-            D = barrier.D
-            c = barrier.c
+            D            = barrier.D
+            c            = barrier.c
             right_order  = False
-            order = 0
+            order        = 0
 
             while not right_order : #(for controllable systems this will stop after at most a number of iterations equal to the state space)
                 db = D@B
@@ -784,7 +784,6 @@ class BarriersOptimizer:
         num_vertices    = vertices.shape[1]
         num_intervals = len(self.time_grid) - 1 # number of time intervals in the time grid
 
-
         # integrate the alpha and beta switching times into the time grid (so time steps between switching times will not be homogenous)
         k_gain     = cp.Parameter(pos=True) #! (when program fails try to increase control input and increase the k_gain. Carefully analyze the situation. Usually it should be at leat equal to 1.)
         order      = self._make_high_order_corrections(system = self.system, k_gain = k_gain)
@@ -824,13 +823,10 @@ class BarriersOptimizer:
             
             for active_task_index in self.active_barriers_map(s_j): # for each active task
                 barrier = self.barriers[active_task_index] 
+                
+               
+                D_high_order  =  barrier.D_high_order 
 
-                D_high_order  =  barrier.D_high_order
-                # print sparisty
-                density = np.count_nonzero( D_high_order ) /  D_high_order.size
-                print(f"Sparsity density: {density:.6f}")
-                
-                
                 c_high_order  = barrier.c_high_order.reshape((-1,1))
 
                 gamma_s_j        = cp.hstack([barrier.gamma_at_time(s_j).reshape((-1,1))]*num_vertices) # gamma function for a given section
@@ -881,9 +877,9 @@ class BarriersOptimizer:
                 D_at_beta_l.append(self.barriers[l_tilde].D  )
                 c_at_beta_l.append(self.barriers[l_tilde].c.reshape((-1,1)))# c vector
 
-            gamma_at_beta_l = cp.vstack(gamma_at_beta_l) # gamma function for a given section
+            gamma_at_beta_l = cp.vstack(gamma_at_beta_l)                   # gamma function for a given section
             D_at_beta_l     = cp.vstack(D_at_beta_l)    # D matrix
-            c_at_beta_l     = cp.vstack(c_at_beta_l)     # c vector   
+            c_at_beta_l     = cp.vstack(c_at_beta_l)                       # c vector   
             
             constraints += [D_at_beta_l @ zeta_l + c_at_beta_l +  gamma_at_beta_l >= epsilon ] # epsilon just to make sure the point is not at the boundary and it is strictly inside
         
@@ -934,7 +930,7 @@ class BarriersOptimizer:
                     k_gain.value = k_val
                     
                     try :
-                        problem.solve(warm_start=True, verbose=True, solver="MOSEK")
+                        problem.solve(warm_start=True, verbose=False, solver="MOSEK")
                         pbar.update(1)
                     except Exception as e:
                         pbar.update(1)
