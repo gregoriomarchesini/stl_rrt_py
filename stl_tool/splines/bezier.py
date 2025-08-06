@@ -30,10 +30,6 @@ def binomial_coefficients(n: int, k: int) -> float:
 
 
 
-
-
-
-
 class BezierCurve:
     """
     Representation of a Bezier curve of ordr n.

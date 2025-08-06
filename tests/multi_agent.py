@@ -12,7 +12,7 @@ import os
 
 
 # select the number of agents
-num_agents = 6
+num_agents = 5
 agent_dim  = 2 # don't touch this
 
 ##########################################################
