@@ -134,7 +134,7 @@ class Map:
             projection_dim = [i for i in range(min(3,self.workspace.num_dimensions))]
         
         if self.ax is None:
-            self.fig, self.ax = self.draw(projection_dim)
+            self.fig, self.ax = self.draw(ax = None, projection_dim=projection_dim)
 
         # look recursuvely into the tree 
         def draw_recursively(node: Node, with_label = False):
