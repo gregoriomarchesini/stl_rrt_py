@@ -302,5 +302,10 @@ def output_matrix(dims :list[int]|int, state_dim : int) :
 
 
 
+
+
+
+
+
 if __name__ == "__main__":
     pass

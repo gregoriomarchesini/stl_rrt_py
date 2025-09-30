@@ -195,6 +195,37 @@ class MultiAgentSystem:
         C_rel[:, idx2*n2:(idx2+1)*n2] = -C2
         
         return C_rel
+    
+    def state_output_matrix(self, name: str, dims: list[int]|int = None) -> np.ndarray:
+        """
+        Returns the output matrix that selects the state of a system in the multi-agent system.
+        
+        :param name: name of the system
+        :type name: str
+        :param dims: dimensions of the system to consider for the output, if None all dimensions are considered
+        :type dims: list[int]|int, optional
+        :return: output matrix that selects the state of the system. The output is of the form C * x = x_sys, where x_sys is the state of the system.
+        :rtype: np.ndarray
+        """
+        
+        sys = self.system_dict.get(name)
+        
+        if sys is None:
+            raise ValueError(f"System {name} not found in the multi-agent system")
+        
+        C_sys = sys.output_matrix_from_dimension(dims)
+        
+        n_sys = sys.size_state
+        
+        idx = list(self.system_dict.keys()).index(name)
+        
+        total_state_size = sum(sys.size_state for sys in self.systems)
+        
+        C = np.zeros((C_sys.shape[0], total_state_size))
+        
+        C[:, idx*n_sys:(idx+1)*n_sys] = C_sys
+        
+        return C
 
 
 
