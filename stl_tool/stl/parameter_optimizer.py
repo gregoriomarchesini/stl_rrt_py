@@ -234,7 +234,7 @@ class AlwaysTask:
     The time interval of satisfaction (obtained by the task scheduler) and the type of the task.
     """
     def __init__(self, polytope: Polyhedron,time_interval:TimeInterval, secondary_time_interval : TimeInterval = None) -> None:
-        self.polytope : Polyhedron   = polytope
+        self.polytope  : Polyhedron   = polytope
         self.alpha_var : cp.Variable =  cp.Variable(nonneg=True)  # stores the alpha value of the barrier.
         self.beta_var  : cp.Variable =  cp.Variable(nonneg=True)  # stores the beta value of the barrier.
         self.time_interval : TimeInterval = time_interval # time interval of the task
@@ -251,6 +251,7 @@ class EventuallyTask:
         self.beta_var  : cp.Variable  =  cp.Variable(nonneg=True)  # stores the alpha value of the barrier.
         self.time_interval : TimeInterval = time_interval # time interval of the task
         self.derived = False
+    
     def flag_as_derived_from_always_eventually(self) :
         """
         Flag the task as derived from an always-eventually task.
@@ -638,7 +639,7 @@ class BarriersOptimizer:
         self.input_bounds      : Polyhedron                      = input_bound
         self.x_0               : np.ndarray                      = x_0
         self.minimize_r        : bool                            = minimize_robustness
-        self.given_k_gain      :float                            = k_gain
+        self.given_k_gain      : float                           = k_gain
         self.robustness        : float                           = 0. # initial guess for the robustness
 
         self.barriers                          : list[BarrierFunction]       = []

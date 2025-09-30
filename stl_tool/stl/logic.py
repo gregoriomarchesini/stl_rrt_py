@@ -13,7 +13,7 @@ BIG_NUMBER = 1E8
 
 
 
-##############################################
+##################################################
 # De morgan laws
 ##################################################
 #1) ¬ (φ1 ∧ φ2) = ¬φ1 ∨ ¬φ2
@@ -24,9 +24,10 @@ BIG_NUMBER = 1E8
 #6)   F(φ1 ∨ φ2) = F φ1 ∨ F φ2
 #7)   F_{[a,b]}F_{[c,d]} φ = F_{[a+c,b+d]} φ
 #8)   G_{[a,b]}G_{[c,d]} φ = G_{[a+c,b+d]} φ
+#9)   distribute and over or : φ1 ∧ (φ2 ∨ φ3) = (φ1 ∧ φ2) ∨ (φ1 ∧ φ3) 
 ### Blocking Case
-#9)   G(φ1 ∨ φ2) -> Blocking (no push forward rule)
-#10)  F(φ1 ∧ φ2) -> Blocking (no push forward rule)
+#    G(φ1 ∨ φ2) -> Blocking (no push forward rule)
+#    F(φ1 ∧ φ2) -> Blocking (no push forward rule)
 
 class Node :
     """
@@ -176,6 +177,9 @@ class GOp(OperatorNode) :
 
 
 class FOp(OperatorNode) :
+    """
+    Eventually operator node. It is used to define the eventually operator in the formula tree in the form F(a,b).
+    """
     def __init__(self, a = float, b = float):
         
         
@@ -187,8 +191,18 @@ class FOp(OperatorNode) :
     def __rshift__(self, formula : "Formula") -> "Formula":
         
         """
-            Attach temporal operator to formula. Push-forward rules are applied when possible
+        Attach temporal operator to formula. Push-forward rules are applied when possible.
+
+        :param formula: Formula to attach the temporal operator to
+        :type formula: Formula
+        :return: New formula with the temporal operator attached
+        :rtype: Formula
+        
+        Example:
+            >>> f = Predicate(polytope, dims=[0,1], name="p")
+            >>> g = FOp(0,10) >> f
         """
+            
 
         # rule  F_{[a,b]}F_{[c,d]} φ = F_{[a+c,b+d]} 
         if isinstance(formula.root, FOp):
@@ -287,7 +301,10 @@ def deepcopy_predicate_node(node: Node) -> Node:
 ##############################################################################################################################################################
 
 class Formula:
-    """Stl formula tree"""
+    """
+    Abstract class to represent a Signal Temporal Logic Formula.
+    It contains the root node of the formula tree and methods to manipulate the formula.
+    """
     def __init__(self,root : Node | None = None) -> None:
         self._root = root # if None then it is an empty formula.
 
@@ -356,23 +373,71 @@ class Formula:
          
     # disjunction of formulas  
     def __or__(self, formula : "Formula"):
+        """
+        Overload the | operator to define disjunctions of formulas. 
         
+        :param formula: Formula to disjoin with the current formula
+        :type formula: Formula
+        :return: New formula representing the disjunction of the two formulas
+        :rtype: Formula
+
+        Example:
+            >>> f1 = Predicate(polytope1, dims=[0,1], name="p1")
+            >>> f2 = Predicate(polytope2, dims=[0,1], name="p2")
+            >>> f3 = f1 | f2
+        """
         
         
         if isinstance(formula.root, OrOperator)  and isinstance(self.root, OrOperator):
+            # (φ1 ∨ φ2) ∨ (φ3 ∨ φ4) = (φ1 ∨ φ2 ∨ φ3 ∨ φ4)
 
             root_self    = deepcopy_predicate_node(self.root)
             root_formula = deepcopy_predicate_node(formula.root)
             formula      = Formula(root = OrOperator(*root_self.children,*root_formula.children))
             
             return formula
+        
+        # distribute or operator
+        elif isinstance(self.root, AndOperator) and isinstance(formula.root, OrOperator):
+            # φ1 ∧ (φ2 ∨ φ3) = (φ1 ∧ φ2) ∨ (φ1 ∧ φ3) 
+            # note: this operator can cause an exponential blow up of the formula size if used repeatedly
+            
+            new_child_formulas : list[Formula] = []
+            for child in formula.root.children:
+                child_formula       = Formula(root= child)
+                child_new_formula   = self & child_formula # recurive call in order to get the nested formula until a temporal operator or predicate is reached
+                new_child_formulas += [child_new_formula]
+            
+            new_formula = new_child_formulas[0]
+            for i in range(1,len(new_child_formulas)):
+                new_formula = new_formula | new_child_formulas[i]
+            
+            return new_formula
+        
+        elif isinstance(formula.root, AndOperator) and isinstance(self.root, OrOperator):
+            # (φ1 ∨ φ2) ∧ φ3 = (φ1 ∧ φ3) ∨ (φ2 ∧ φ3) 
+            # note: this operator can cause an exponential blow up of the formula size if used repeatedly
+
+            new_child_formulas : list[Formula] = []
+            for child in self.root.children:
+                child_formula       = Formula(root= child)
+                child_new_formula   = child_formula & formula # recurive call in order to get the nested formula until a temporal operator or predicate is reached
+                new_child_formulas += [child_new_formula]
+            
+            new_formula = new_child_formulas[0]
+            for i in range(1,len(new_child_formulas)):
+                new_formula = new_formula | new_child_formulas[i]
+            
+            return new_formula
            
         elif isinstance(formula.root, OrOperator) :
-            root_self = deepcopy_predicate_node(self.root)
-            root_formula = formula.root
+            # (φ1 ∨ φ2) ∨ φ3 = (φ1 ∨ φ2 ∨ φ3)
+            root_self     = deepcopy_predicate_node(self.root)
+            root_formula   = formula.root
             return Formula(root = OrOperator(root_self,*root_formula.children))
         
         elif isinstance(self.root, OrOperator):
+            # φ1 ∨ (φ2 ∨ φ3) = (φ1 ∨ φ2 ∨ φ3)
             root_formula = deepcopy_predicate_node(formula.root)
             root_self    = self.root
             return Formula(root = OrOperator(*root_self.children,root_formula))
