@@ -44,12 +44,14 @@ class PredicateNode(Node):
     """
     Predicate Node of the formula tree. It stores the polytope defining the predicate and the dimensions of the state space that define such polytope.
     """
-    def __init__(self, polytope: Polyhedron, output_matrix : np.ndarray, name:str | None = None) -> None:
+    def __init__(self, polytope: Polyhedron, output_matrix : np.ndarray, systems_id : list[int] = [], name:str | None = None ) -> None:
         """
-        :param polytope: Polytope defining the predicate
+        :param polytope: Polytope defining the predicate as Ax <= b
         :type polytope: Polytope
-        :param output_matrix: Output matrix of the predicate (e.g. for a linear system this is the matrix C in the state space representation x_dot = Ax + Bu, y = Cx + Du)
+        :param output_matrix: Output matrix of the predicate. So the output is y = Cx and the predicate is defined as ACx <= b
         :type output_matrix: np.ndarray
+        :param systems_id: List of system ids that the predicate is defined on. It is used to identify the system when multiple systems are used in the same formula.
+        :type systems_id: list[int]
         :param name: name of the predicate
         :type name: str
         """
@@ -57,9 +59,10 @@ class PredicateNode(Node):
         self.parent               : "OperatorNode" |None    = None
         self.polytope             : Polyhedron              = polytope
         self.output_matrix        : np.ndarray              = output_matrix
-        
-        # check the output matrix 
-        # The polyhedron is defined as Ax <= b, but if you want the polyhedron to be defined on an output y = Cx then 
+        self.systems_id           : list[int]               = systems_id
+
+        # check the output matrix
+        # The polyhedron is defined as Ax <= b, but if you want the polyhedron to be defined on an output y = Cx then
         # the matrix C must be consistent with the matrix A
         
 
@@ -646,7 +649,28 @@ class Formula:
                     max_children = max(max_children, recursive_max_num_children(child))
                 return max_children
         
-        return recursive_max_num_children(self.root)    
+        return recursive_max_num_children(self.root)
+
+    def systems_in_the_formula(self) -> list[int]:
+        """
+        Get the list of systems in the formula
+        """
+        if self.is_null:
+            return []
+        
+        systems = set()
+
+        def recursive_systems_in_the_formula(node):
+            if isinstance(node, PredicateNode):
+                if node.systems_id is not None:
+                    systems.update(node.systems_id)
+
+            for child in node.children:
+                recursive_systems_in_the_formula(child)
+        
+        recursive_systems_in_the_formula(self.root)
+        
+        return list(systems)
     
 
     def show_graph(self,debug=False):
@@ -795,7 +819,7 @@ class Predicate(Formula) :
     """
     Wrapper class to create a predicate formula from a polytope.
     """
-    def __init__(self, polytope: Polyhedron, output_matrix : np.ndarray , name: str | None = None) -> None:
+    def __init__(self, polytope: Polyhedron, output_matrix : np.ndarray , systems_id: list[int] = [], name: str | None = None) -> None:
         """
         
         :param polytope: Polytope defining the predicate
@@ -805,7 +829,7 @@ class Predicate(Formula) :
         :param name: name of the predicate
         :type name: str
         """
-        super().__init__(root = PredicateNode(polytope = polytope , output_matrix = output_matrix , name = name))
+        super().__init__(root = PredicateNode(polytope = polytope , output_matrix = output_matrix , systems_id = systems_id , name = name))
 
     @property
     def polytope(self) -> Polyhedron:

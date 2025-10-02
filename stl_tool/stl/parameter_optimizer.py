@@ -506,8 +506,8 @@ class TaskScheduler:
         Use cvxpy to computer the distance between two polytopes inside two polytopes"
         """
 
-        x = cp.Variable((self.system.size_state))
-        y = cp.Variable((self.system.size_state))
+        x = cp.Variable((self.system.state_dim))
+        y = cp.Variable((self.system.state_dim))
 
         A1,b1 = p1.A, p1.b
         A2,b2 = p2.A, p2.b
@@ -711,7 +711,7 @@ class BarriersOptimizer:
 
         A = system.A 
         B = system.B
-        I = np.eye(system.size_state)
+        I = np.eye(system.state_dim)
 
         print("================================================")
         print("Correcting barriers for high order systems")
@@ -767,9 +767,9 @@ class BarriersOptimizer:
         if self.input_bounds.is_open:
             raise ValueError("The input bounds are an open Polyhedron. Please provide a closed polytope")
         
-        if self.input_bounds.num_dimensions != self.system.size_input:
+        if self.input_bounds.num_dimensions != self.system.input_dim:
             raise ValueError("The input bounds polytope must be in the same dimension as the system input. Given input bounds are in dimension " +
-                             str(self.input_bounds.num_dimensions) + ", while the system input dimension is " + str(self.system.size_input))
+                             str(self.input_bounds.num_dimensions) + ", while the system input dimension is " + str(self.system.input_dim))
         
         if not isinstance(self.system, ContinuousLinearSystem):
             raise ValueError("The system must be a ContinuousLinearSystem.")
@@ -795,7 +795,7 @@ class BarriersOptimizer:
         slack         = cp.Variable(nonneg = True)
         slack_penalty = 1E5
         
-        UU = cp.Variable((self.system.size_input, 2*num_vertices*num_intervals))  
+        UU = cp.Variable((self.system.input_dim, 2*num_vertices*num_intervals))  
 
 
         constraints  :list[cp.Constraint]  = []

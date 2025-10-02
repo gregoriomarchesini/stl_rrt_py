@@ -2,6 +2,7 @@ import numpy as np
 
 from .logic import Predicate
 from ..polyhedron import Polyhedron
+from .linear_system import ContinuousLinearSystem
 
 
 
@@ -9,7 +10,7 @@ class Geq(Predicate):
     """
     Predicate defining a lower bound on the state as x[dims] >= b. The list dims represents the dimension over which the predicate is defined.
     """
-    def __init__(self, dims : list[int] | int, state_dim : int, bound:float, name:str | None = None) :
+    def __init__(self, dims : list[int] | int, state_dim : int, bound:float, systems_id: list[int]  = [] , name:str | None = None) :
         """
         :param dims: list of dimensions to apply the predicate
         :type dims: list[int]
@@ -31,14 +32,14 @@ class Geq(Predicate):
         
         # polytope is always defined as Ax<= b
         polytope = Polyhedron(-A,-b)
-        super().__init__(polytope = polytope, output_matrix= C, name = name)
-        
+        super().__init__(polytope = polytope, output_matrix= C, systems_id = systems_id, name = name)
+
 
 class Leq(Predicate):
     """
     Predicate defining an upper bound on the state as x[dims] <= b. The list dims represents the dimension over which the predicate is defined.
     """
-    def __init__(self, dims : list[int] | int, state_dim : int, bound:float, name:str | None = None) :
+    def __init__(self, dims : list[int] | int, state_dim : int, bound:float, systems_id: list[int]  = [] , name:str | None = None) :
         """
         :param dims: list of dimensions to apply the predicate
         :type dims: list[int]
@@ -60,7 +61,7 @@ class Leq(Predicate):
         
         # polytope is always defined as Ax<= b
         polytope = Polyhedron(A,b)
-        super().__init__(polytope = polytope, output_matrix= C, name = name)
+        super().__init__(polytope = polytope, output_matrix= C, systems_id = systems_id, name = name)
 
 
 
@@ -69,7 +70,7 @@ class BoxPredicate(Predicate):
     Represents a box region in the given dimensions of the state space. The list dims represents the dimension over which the predicate is defined.
     """
 
-    def __init__(self, dims: list[int], state_dim : int, size: float|list[float], center: np.ndarray = None, name:str | None = None):
+    def __init__(self, dims: list[int], state_dim : int, size: float|list[float], center: np.ndarray = None, systems_id: list[int] = [], name:str | None = None):
         """
         :param dims: list of dimensions to apply the predicate
         :type dims: list[int]
@@ -105,9 +106,87 @@ class BoxPredicate(Predicate):
         C     = output_matrix(dims = dims, state_dim = state_dim)  # Create output matrix for the given dimensions
 
         polytope = Polyhedron(A, b_vec)
-        super().__init__(polytope = polytope, output_matrix= C , name = name)
+        super().__init__(polytope = polytope, output_matrix= C , systems_id = systems_id, name = name)
     
 
+    @staticmethod
+    def from_output_matrix(C: np.ndarray, size: float|list[float], center: np.ndarray = None, systems_id: list[int] = [], name:str | None = None):
+        """
+        Create a BoxPredicate from an output matrix.
+
+        :param C: Output matrix defining the dimensions of the state space to apply the predicate
+        :type C: np.ndarray
+        :param size: Size of the box
+        :type size: float or list[float]
+        :param center: Center of the box
+        :type center: np.ndarray
+        :param name: Name of the predicate
+        :type name: str
+        :return: BoxPredicate instance
+        :rtype: BoxPredicate
+        """
+
+        if center is None:
+            center = np.zeros(C.shape[0])
+        else:
+            center = np.array(center).flatten()
+            if len(center) != C.shape[0]:
+                raise ValueError(f"The center must be a {C.shape[0]}D vector when the given predicate dimensions are ({C.shape[0]}). Given center: {center}")
+
+        if not isinstance(size, list):
+            size = float(size)
+            size = np.array([size] * C.shape[0])
+        else:
+            size = np.array(size).flatten()
+            if len(size) != C.shape[0]:
+                raise ValueError(f"The size must be a {C.shape[0]}D vector when the given predicate dimensions are ({C.shape[0]}). Given size: {size}")
+
+
+        b     = np.hstack((size,size)) / 2
+        A     = np.vstack((np.eye(C.shape[0]), -np.eye(C.shape[0])))
+        b_vec = b + A @ center  # Ensuring proper half-space representation
+        polytope = Polyhedron(A, b_vec)
+
+        super().__init__(polytope = polytope, output_matrix = C , systems_id = systems_id, name = name)
+
+    @staticmethod
+    def from_output_matrix(C: np.ndarray, size: float|list[float], center: np.ndarray = None, systems_id: list[int] = [], name:str | None = None):
+        """
+        Create a BoxPredicate from an output matrix.
+
+        :param C: Output matrix defining the dimensions of the state space to apply the predicate
+        :type C: np.ndarray
+        :param size: Size of the box
+        :type size: float or list[float]
+        :param center: Center of the box
+        :type center: np.ndarray
+        :param name: Name of the predicate
+        :type name: str
+        :return: BoxPredicate instance
+        :rtype: BoxPredicate
+        """
+
+        if center is None:
+            center = np.zeros(C.shape[0])
+        else:
+            center = np.array(center).flatten()
+            if len(center) != C.shape[0]:
+                raise ValueError(f"The center must be a {C.shape[0]}D vector when the given predicate dimensions are ({C.shape[0]}). Given center: {center}")
+
+        if not isinstance(size, list):
+            size = float(size)
+            size = np.array([size] * C.shape[0])
+        else:
+            size = np.array(size).flatten()
+            if len(size) != C.shape[0]:
+                raise ValueError(f"The size must be a {C.shape[0]}D vector when the given predicate dimensions are ({C.shape[0]}). Given size: {size}")
+
+        b     = np.hstack((size,size)) / 2
+        A     = np.vstack((np.eye(C.shape[0]), -np.eye(C.shape[0])))
+        b_vec = b + A @ center  # Ensuring proper half-space representation
+        polytope = Polyhedron(A, b_vec)
+        
+        return BoxPredicate(polytope=polytope, output_matrix=C, systems_id=systems_id, name=name)
 
 
 class BoxPredicate2d(BoxPredicate):
@@ -116,7 +195,7 @@ class BoxPredicate2d(BoxPredicate):
     This is just a convenience class for BoxBound. It is equivalent to BoxBound(dims=[0, 1], size=size, center=center)
     """
 
-    def __init__(self, size: float|list[float], center: np.ndarray = None, name:str | None = None):
+    def __init__(self, size: float|list[float], center: np.ndarray = None, systems_id: list[int] = [], name:str | None = None):
         """
         :param size: size of the box
         :type size: float or list[float]
@@ -125,14 +204,14 @@ class BoxPredicate2d(BoxPredicate):
         :param name: name of the predicate
         :type name: str
         """
-        super().__init__(dims=[0, 1], state_dim = 2, size=size, center=center, name=name)
+        super().__init__(dims=[0, 1], state_dim = 2, size=size, center=center, systems_id=systems_id, name=name)
 
 class BoxPredicate3d(BoxPredicate):
     """
     Polytope representing a 3D box on the first three dimension of the state space.
     This is just a convenience class for BoxBound. It is equivalent to BoxBound(dims=[0, 1, 2], size=size, center=center)
     """
-    def __init__(self, size: float|list[float], center: np.ndarray = None, name:str | None = None):
+    def __init__(self, size: float|list[float], center: np.ndarray = None, systems_id: list[int] = [], name:str | None = None):
         """
         :param size: size of the box
         :type size: float or list[float]
@@ -141,7 +220,7 @@ class BoxPredicate3d(BoxPredicate):
         :param name: name of the predicate
         :type name: str
         """
-        super().__init__(dims=[0, 1, 2], state_dim = 3, size=size, center=center, name=name)
+        super().__init__(dims=[0, 1, 2], state_dim = 3, size=size, center=center, systems_id=systems_id, name=name)
 
 
 
@@ -150,7 +229,7 @@ class RegularPolygonPredicate2D(Predicate):
     Represents a regular polygon in 2D defined by number of sides, size, and center.
     """
 
-    def __init__(self, n_sides: int, size: float, center: np.ndarray = None, name: str | None = None):
+    def __init__(self, n_sides: int, size: float, center: np.ndarray = None, systems_id: list[int] = [], name: str | None = None):
         """
         :param n_sides: Number of sides of the regular polygon (must be >= 3)
         :type n_sides: int
@@ -180,22 +259,21 @@ class RegularPolygonPredicate2D(Predicate):
         
         C = output_matrix(dims=[0, 1], state_dim=2)  # Create output matrix for the first two dimensions
         polytope = Polyhedron(A, b)
-        super().__init__(polytope=polytope, output_matrix=C, name=name)
+        super().__init__(polytope=polytope, output_matrix=C, systems_id=systems_id, name=name)
 
 
 class IcosahedronPredicate(Predicate):
 
 
-    def __init__(self, radius=1.0, x=0.0, y=0.0, z=0.0 , name:str | None = None):
+    def __init__(self, radius=1.0, x=0.0, y=0.0, z=0.0 , systems_id: list[int] = [], name:str | None = None):
         """ The standard application of the Icosahedron is on three dimensions """
 
         
         H,b,_,_ = self._icosahedron_h_representation(radius, center = np.array([x,y,z]))
         pp      = Polyhedron(H, b)
         C       = output_matrix(dims= [0,1,2], state_dim = 6)  # Create output matrix for the given dimensions
-        
-        super().__init__(polytope = pp, output_matrix = C, name = name)
-        
+
+        super().__init__(polytope = pp, output_matrix = C, systems_id = systems_id, name = name)
 
     def _compute_plane_equation(self,v1, v2, v3):
         """
@@ -299,9 +377,6 @@ def output_matrix(dims :list[int]|int, state_dim : int) :
         raise ValueError(f"Dimensions {dims} are out of range for the system with size {state_dim}")
     
     return np.eye(state_dim)[dims,:]
-
-
-
 
 
 

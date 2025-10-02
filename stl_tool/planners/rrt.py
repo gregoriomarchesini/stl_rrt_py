@@ -98,8 +98,8 @@ class StlRRTStar :
 
         
         # initial checks before moving on
-        if len(start_state) != system.size_state:
-            raise ValueError(f"Start state dimension {len(start_state)} does not match system state dimension {system.size_state}.")
+        if len(start_state) != system.state_dim:
+            raise ValueError(f"Start state dimension {len(start_state)} does not match system state dimension {system.state_dim}.")
         
         if not start_state in self.map.workspace:
             raise ValueError(f"Start state {start_state} is not in the workspace.")
