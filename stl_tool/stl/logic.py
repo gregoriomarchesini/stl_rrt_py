@@ -44,12 +44,10 @@ class PredicateNode(Node):
     """
     Predicate Node of the formula tree. It stores the polytope defining the predicate and the dimensions of the state space that define such polytope.
     """
-    def __init__(self, polytope: Polyhedron, output_matrix : np.ndarray, systems_id : list[int] = [], name:str | None = None ) -> None:
+    def __init__(self, polytope: Polyhedron, systems_id : list[str] = [], name:str | None = None ) -> None:
         """
         :param polytope: Polytope defining the predicate as Ax <= b
         :type polytope: Polytope
-        :param output_matrix: Output matrix of the predicate. So the output is y = Cx and the predicate is defined as ACx <= b
-        :type output_matrix: np.ndarray
         :param systems_id: List of system ids that the predicate is defined on. It is used to identify the system when multiple systems are used in the same formula.
         :type systems_id: list[int]
         :param name: name of the predicate
@@ -58,17 +56,7 @@ class PredicateNode(Node):
 
         self.parent               : "OperatorNode" |None    = None
         self.polytope             : Polyhedron              = polytope
-        self.output_matrix        : np.ndarray              = output_matrix
-        self.systems_id           : list[int]               = systems_id
-
-        # check the output matrix
-        # The polyhedron is defined as Ax <= b, but if you want the polyhedron to be defined on an output y = Cx then
-        # the matrix C must be consistent with the matrix A
-        
-
-        if output_matrix.shape[0] != polytope.A.shape[1]:
-            raise ValueError(f"The output matrix must have dimension compatible with the given predicate polyhedron such that the final predicate is given as ACx <= b. Given output matrix shape: {output_matrix.shape} and polyhedron A shape: {polytope.A.shape}")
-        
+        self.systems_id           : list[str]               = systems_id
 
         Node.__init__(self)  
         
@@ -281,8 +269,8 @@ def deepcopy_predicate_node(node: Node) -> Node:
     """ Go down the tree and duplicate the poredicates which coudl be shared among different branches"""
 
     if isinstance(node, PredicateNode):
-        return PredicateNode(node.polytope, output_matrix= node.output_matrix, name= node.name)
-    
+        return PredicateNode(node.polytope, systems_id= node.systems_id, name= node.name)
+
     else:
         if isinstance(node,UOp):
             left_child = deepcopy_predicate_node(node.left_node)
@@ -651,9 +639,9 @@ class Formula:
         
         return recursive_max_num_children(self.root)
 
-    def systems_in_the_formula(self) -> list[int]:
+    def systems_in_the_formula(self) -> list[str]:
         """
-        Get the list of systems in the formula
+        Get the list of systems in the formula. For  a multi agent systems, we might have multiple agents taking part in the formula.
         """
         if self.is_null:
             return []
@@ -671,7 +659,31 @@ class Formula:
         recursive_systems_in_the_formula(self.root)
         
         return list(systems)
-    
+
+    def get_state_dimension_of_each_predicate(self) -> dict[str,int]:
+        """
+        Get the state dimension of each predicate in the formula by name.
+        """
+
+        if self.is_null:
+            return {}
+        
+        state_dims : dict[str,int] = dict() # system id -> state dimension
+
+        def recursive_are_predicates_states_consistent(node):
+            nonlocal state_dims
+            if isinstance(node, PredicateNode):
+                current_state_dims = node.polytope.A.shape[1]
+                state_dims[node.name] = current_state_dims
+               
+            for child in node.children:
+                state_dims = recursive_are_predicates_states_consistent(child)
+            
+            return state_dims
+        
+        state_dims = recursive_are_predicates_states_consistent(self.root)
+
+        return state_dims
 
     def show_graph(self,debug=False):
     
@@ -686,15 +698,16 @@ class Formula:
         predicate_color = "yellow"
         logical_operator_color = "red"
 
-        patch_specs = dict(edgecolor='black', facecolor = temporal_color, alpha=0.4, zorder=1, lw = 3)
-        
+        predicate_specs = dict(edgecolor='black', facecolor = temporal_color, alpha=0.4, zorder=1, lw = 3)
+        operator_specs = dict(edgecolor='black', facecolor = logical_operator_color, alpha=0.4, zorder=1, lw = 3)
+
         def plot_node(node: Node, x, y):
             if isinstance(node, PredicateNode):
                 if debug:
                     ax.text(x, y, f"P\nnode_id: {node.node_id}", fontsize=12, ha='center', va='center')
                 else:
-                    ax.text(x, y, "P", fontsize=12, ha='center', va='center')
-                Rect = patches.Rectangle((x-patch_radius, y-patch_radius), width=2*patch_radius, height=2*patch_radius, **patch_specs)
+                    ax.text(x, y, node.name, fontsize=12, ha='center', va='center')
+                Rect = patches.Rectangle((x-patch_radius, y-patch_radius), width=2*patch_radius, height=2*patch_radius, **predicate_specs)
                 ax.add_patch(Rect)
 
             elif isinstance(node, AndOperator):
@@ -702,7 +715,7 @@ class Formula:
                     ax.text(x, y, f"AND\nnode_id: {node.node_id}", fontsize=12, ha='center', va='center')
                 else:
                     ax.text(x, y, "AND", fontsize=12, ha='center', va='center')
-                circle = patches.Circle((x, y), radius=patch_radius, **patch_specs)
+                circle = patches.Circle((x, y), radius=patch_radius, **operator_specs)
                 ax.add_patch(circle)
 
             elif isinstance(node, UOp):
@@ -711,7 +724,7 @@ class Formula:
                     ax.text(x, y, f"{label}\nnode_id: {node.node_id}", fontsize=12, ha='center', va='center')
                 else:
                     ax.text(x, y, label, fontsize=12, ha='center', va='center')
-                circle = patches.Circle((x, y), radius=patch_radius, **patch_specs)
+                circle = patches.Circle((x, y), radius=patch_radius, **operator_specs)
                 ax.add_patch(circle)
 
             elif isinstance(node, OrOperator):
@@ -719,7 +732,7 @@ class Formula:
                     ax.text(x, y, f"OR\nnode_id: {node.node_id}", fontsize=12, ha='center', va='center')
                 else:
                     ax.text(x, y, "OR", fontsize=12, ha='center', va='center')
-                circle = patches.Circle((x, y), radius=patch_radius, **patch_specs)
+                circle = patches.Circle((x, y), radius=patch_radius, **operator_specs)
                 ax.add_patch(circle)
 
             elif isinstance(node, GOp):
@@ -728,7 +741,7 @@ class Formula:
                     ax.text(x, y, f"{label}\nnode_id: {node.node_id}", fontsize=12, ha='center', va='center')
                 else:
                     ax.text(x, y, label, fontsize=12, ha='center', va='center')
-                circle = patches.Circle((x, y), radius=patch_radius, **patch_specs)
+                circle = patches.Circle((x, y), radius=patch_radius, **operator_specs)
                 ax.add_patch(circle)
 
             elif isinstance(node, FOp):
@@ -737,7 +750,7 @@ class Formula:
                     ax.text(x, y, f"{label}\nnode_id: {node.node_id}", fontsize=12, ha='center', va='center')
                 else:
                     ax.text(x, y, label, fontsize=12, ha='center', va='center')
-                circle = patches.Circle((x, y), radius=patch_radius, **patch_specs)
+                circle = patches.Circle((x, y), radius=patch_radius, **operator_specs)
                 ax.add_patch(circle)
 
             elif isinstance(node, NotOperator):
@@ -745,7 +758,7 @@ class Formula:
                     ax.text(x, y, f"NOT\nnode_id: {node.node_id}", fontsize=12, ha='center', va='center')
                 else:
                     ax.text(x, y, "NOT", fontsize=12, ha='center', va='center')
-                circle = patches.Circle((x, y), radius=patch_radius, **patch_specs)
+                circle = patches.Circle((x, y), radius=patch_radius, **operator_specs)
                 ax.add_patch(circle)
 
             else:
@@ -758,37 +771,42 @@ class Formula:
 
         plot_node(self.root, 0, 0)
 
-        def plot_tree(node:Node, x, y,level = 0):
-            # Plot the current node
+        def compute_subtree_width(node: Node) -> float:
+            if not node.children:
+                return 1.0
+            return sum(compute_subtree_width(child) for child in node.children)
+
+        def plot_tree(node: Node, x, y):
             plot_node(node, x, y)
-            
-            # Recurse on children
-            if len(node.children) >=2: #(binary operator)
-                n_children = len(node.children)
-                for i, child in enumerate(node.children):
-                    # Calculate the child position
-                    child_x = x + (i - (n_children - 1) / 2) * base_node_lateral_spacing/(2*level+1)
-                    child_y = y - base_node_vertical_spacing
 
-                    # Draw a line from current node to child
-                    ax.plot([x, child_x], [y-patch_radius, child_y+patch_radius], 'k-', lw=1)
+            if not node.children:
+                return
 
-                    # Recursive call to plot the subtree
-                    plot_tree(child, child_x, child_y, level+1)
-            
-            elif len(node.children) ==1 : # unary operator
-                child = node.children[0]
-                child_x = x
+            # Get widths of all children
+            widths = [compute_subtree_width(child) for child in node.children]
+            total_width = sum(widths)
+
+            # Start x for the leftmost child
+            current_x = x - total_width / 2 * base_node_lateral_spacing
+
+            for child, w in zip(node.children, widths):
+                # Center child on its subtree
+                child_x = current_x + (w / 2) * base_node_lateral_spacing
                 child_y = y - base_node_vertical_spacing
-                ax.plot([x, child_x], [y-patch_radius, child_y+patch_radius], 'k-', lw=1)
-                plot_tree(child, child_x, child_y, level+1)
 
-            else: #(predicate nodes do not have children. Nothing to do)
-                pass
+                # Draw edge
+                ax.plot([x, child_x], [y - patch_radius, child_y + patch_radius], 'k-', lw=1)
+
+                # Recursive call
+                plot_tree(child, child_x, child_y)
+
+                # Move to next child's position
+                current_x += w * base_node_lateral_spacing
+
 
 
         plot_tree(self.root, 0, 0)
-        ax.set_aspect('equal')
+        
 
         ax.set_xticks([])
         ax.set_yticks([])
@@ -819,9 +837,9 @@ class Predicate(Formula) :
     """
     Wrapper class to create a predicate formula from a polytope.
     """
-    def __init__(self, polytope: Polyhedron, output_matrix : np.ndarray , systems_id: list[int] = [], name: str | None = None) -> None:
+    def __init__(self, polytope: Polyhedron, systems_id: list[str] = [], name: str | None = None) -> None:
         """
-        
+        Initialize a Predicate object.
         :param polytope: Polytope defining the predicate
         :type polytope: Polytope
         :param dims: dimensions of the state space that define the predicate. These are equal to the dimensions of the polytope.
@@ -829,7 +847,7 @@ class Predicate(Formula) :
         :param name: name of the predicate
         :type name: str
         """
-        super().__init__(root = PredicateNode(polytope = polytope , output_matrix = output_matrix , systems_id = systems_id , name = name))
+        super().__init__(root = PredicateNode(polytope = polytope , systems_id = systems_id , name = name))
 
     @property
     def polytope(self) -> Polyhedron:
@@ -837,12 +855,6 @@ class Predicate(Formula) :
         Get the polytope of the predicate node
         """
         return self.root.polytope
-    @property
-    def output_matrix(self) -> np.ndarray:
-        """
-        Get the output matrix of the predicate node
-        """
-        return self.root.output_matrix
     
     @property
     def name(self) -> str:
@@ -851,47 +863,13 @@ class Predicate(Formula) :
         """
         return self.root.name
     
-    # def __add__(self, other:"Predicate") -> "Predicate" :
-    #     """
-    #     Cartesian product of two polytopes using the '+' operator.
-        
-    #     :param other: Another Polytope object to combine with.
-    #     :type other: Polytope
-    #     :return: A new Polytope object representing the Cartesian product.
-    #     :rtype: Polytope
-    #     """
-
-    #     if not isinstance(other, Predicate):
-    #         raise ValueError(f"Cannot add {type(other)} to Predicate. Only Predicate is supported.")
-        
-    #     old_polytope = self.polytope
-    #     new_polytope = old_polytope.cross(other.polytope)
-
-    #     # shift dimensions of the other polytope
-    #     new_dims = self.dims + [d + len(self.dims) for d in other.dims]
-
-    #     name = f"{self.name} + {other.name}" if self.name and other.name else None
-    #     return Predicate(polytope=new_polytope, dims=new_dims, name=name)
-
-    # def __radd__(self, other:"Predicate") -> "Predicate" :
-    #     """
-    #     Cartesian product of two polytopes using the '+' operator.
-        
-    #     :param other: Another Polytope object to combine with.
-    #     :type other: Polytope
-    #     :return: A new Polytope object representing the Cartesian product.
-    #     :rtype: Polytope
-    #     """
-
-    #     if not isinstance(other, Predicate):
-    #         raise ValueError(f"Cannot add {type(other)} to BoxBound. Only BoxBound is supported.")
-        
-    #     old_polytope = other.polytope
-    #     new_polytope = old_polytope.cross(self.polytope)
-    #     # shift dimensions of self
-    #     new_dims = other.dims + [d + len(other.dims) for d in self.dims]
-    #     name = f"{other.name} + {self.name}" if self.name and other.name else None
-    #     return Predicate(polytope=new_polytope, dims=new_dims, name=name)
+    def __str__(self):
+        out = "-----------------------------------------\n"
+        out += f"Predicate Node: {self.root.name}\n"
+        out += f"Polytope: {self.root.polytope}\n"
+        out += f"Systems ID: {self.root.systems_id}\n"
+        out += "-----------------------------------------\n"
+        return out
 
 def get_fomula_type_and_predicate_node(formula : Formula ) -> tuple[str,PredicateNode] :
 
@@ -933,6 +911,76 @@ def get_fomula_type_and_predicate_node(formula : Formula ) -> tuple[str,Predicat
     
     raise ValueError("The given formula is either a conjunction, a disjunction or a a formulaa containing the Until operator. Please provide a formula of type Gp, Fp, GFp or FGp where p is the predicate node.")  
 
+
+
+
+def contains_disjunctions(formula: Formula) -> bool:
+    """
+    Check if the formula contains disjunctions.
+    
+    :param formula: Formula to check
+    :type formula: Formula
+    :return: True if the formula contains disjunctions, False otherwise
+    :rtype: bool
+    """
+    
+    if not isinstance(formula, Formula):
+        raise ValueError("The formula must be of type Formula")
+    
+    def recursive_check_disjunction(node: Node) -> bool:
+        if isinstance(node, OrOperator):
+            return True
+        else:
+            return any(recursive_check_disjunction(child) for child in node.children)
+    
+    return recursive_check_disjunction(formula.root)
+
+def contains_conjunctions(formula: Formula) -> bool:
+    """
+    Check if the formula contains conjunctions.
+    
+    :param formula: Formula to check
+    :type formula: Formula
+    :return: True if the formula contains conjunctions, False otherwise
+    :rtype: bool
+    """
+    
+    if not isinstance(formula, Formula):
+        raise ValueError("The formula must be of type Formula")
+    
+    def recursive_check_conjunction(node: Node) -> bool:
+        if isinstance(node, AndOperator):
+            return True
+        else:
+            return any(recursive_check_conjunction(child) for child in node.children)
+    
+    return recursive_check_conjunction(formula.root)
+
+
+
+def is_dnf(formula: Formula) -> bool:
+    """
+    Check if the formula is a DNF (Disjunctive Normal Form) formula.
+    
+    :param formula: Formula to check
+    :type formula: Formula
+    :return: True if the formula is in DNF, False otherwise
+    :rtype: bool
+    """
+    
+    if not isinstance(formula, Formula):
+        raise ValueError("The formula must be of type Formula")
+    
+    if not isinstance(formula.root, OrOperator):
+        return False
+    else :
+        # Check if all children are either PredicateNodes or OrOperators
+        for child in formula.root.children:
+            child_formula = Formula(root=child)
+            if contains_disjunctions(child_formula) :
+                return False
+
+        return True
 
 # if __name__ == "__main__":
     

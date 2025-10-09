@@ -2,7 +2,6 @@ import numpy as np
 
 from .logic import Predicate
 from ..polyhedron import Polyhedron
-from .linear_system import ContinuousLinearSystem
 
 
 
@@ -31,8 +30,8 @@ class Geq(Predicate):
         C = output_matrix(dims = dims, state_dim = state_dim)  # Create output matrix for the given dimensions
         
         # polytope is always defined as Ax<= b
-        polytope = Polyhedron(-A,-b)
-        super().__init__(polytope = polytope, output_matrix= C, systems_id = systems_id, name = name)
+        polytope = Polyhedron(-A@C,-b)
+        super().__init__(polytope = polytope, systems_id = systems_id, name = name)
 
 
 class Leq(Predicate):
@@ -60,8 +59,8 @@ class Leq(Predicate):
         C = output_matrix(dims = dims, state_dim = state_dim)  # Create output matrix for the given dimensions
         
         # polytope is always defined as Ax<= b
-        polytope = Polyhedron(A,b)
-        super().__init__(polytope = polytope, output_matrix= C, systems_id = systems_id, name = name)
+        polytope = Polyhedron(A@C,b)
+        super().__init__(polytope = polytope, systems_id = systems_id, name = name)
 
 
 
@@ -105,9 +104,9 @@ class BoxPredicate(Predicate):
         b_vec = b + A @ center  # Ensuring proper half-space representation
         C     = output_matrix(dims = dims, state_dim = state_dim)  # Create output matrix for the given dimensions
 
-        polytope = Polyhedron(A, b_vec)
-        super().__init__(polytope = polytope, output_matrix= C , systems_id = systems_id, name = name)
-    
+        polytope = Polyhedron(A@C, b_vec)
+        super().__init__(polytope = polytope, systems_id = systems_id, name = name)
+
 
     @staticmethod
     def from_output_matrix(C: np.ndarray, size: float|list[float], center: np.ndarray = None, systems_id: list[int] = [], name:str | None = None):
@@ -147,46 +146,7 @@ class BoxPredicate(Predicate):
         b_vec = b + A @ center  # Ensuring proper half-space representation
         polytope = Polyhedron(A, b_vec)
 
-        super().__init__(polytope = polytope, output_matrix = C , systems_id = systems_id, name = name)
-
-    @staticmethod
-    def from_output_matrix(C: np.ndarray, size: float|list[float], center: np.ndarray = None, systems_id: list[int] = [], name:str | None = None):
-        """
-        Create a BoxPredicate from an output matrix.
-
-        :param C: Output matrix defining the dimensions of the state space to apply the predicate
-        :type C: np.ndarray
-        :param size: Size of the box
-        :type size: float or list[float]
-        :param center: Center of the box
-        :type center: np.ndarray
-        :param name: Name of the predicate
-        :type name: str
-        :return: BoxPredicate instance
-        :rtype: BoxPredicate
-        """
-
-        if center is None:
-            center = np.zeros(C.shape[0])
-        else:
-            center = np.array(center).flatten()
-            if len(center) != C.shape[0]:
-                raise ValueError(f"The center must be a {C.shape[0]}D vector when the given predicate dimensions are ({C.shape[0]}). Given center: {center}")
-
-        if not isinstance(size, list):
-            size = float(size)
-            size = np.array([size] * C.shape[0])
-        else:
-            size = np.array(size).flatten()
-            if len(size) != C.shape[0]:
-                raise ValueError(f"The size must be a {C.shape[0]}D vector when the given predicate dimensions are ({C.shape[0]}). Given size: {size}")
-
-        b     = np.hstack((size,size)) / 2
-        A     = np.vstack((np.eye(C.shape[0]), -np.eye(C.shape[0])))
-        b_vec = b + A @ center  # Ensuring proper half-space representation
-        polytope = Polyhedron(A, b_vec)
-        
-        return BoxPredicate(polytope=polytope, output_matrix=C, systems_id=systems_id, name=name)
+        super().__init__(polytope = polytope, systems_id = systems_id, name = name)
 
 
 class BoxPredicate2d(BoxPredicate):
@@ -258,8 +218,9 @@ class RegularPolygonPredicate2D(Predicate):
         b = size * np.ones(n_sides) + A @ center
         
         C = output_matrix(dims=[0, 1], state_dim=2)  # Create output matrix for the first two dimensions
-        polytope = Polyhedron(A, b)
-        super().__init__(polytope=polytope, output_matrix=C, systems_id=systems_id, name=name)
+        polytope = Polyhedron(A@C, b)
+
+        super().__init__(polytope=polytope, systems_id=systems_id, name=name)
 
 
 class IcosahedronPredicate(Predicate):
@@ -270,10 +231,10 @@ class IcosahedronPredicate(Predicate):
 
         
         H,b,_,_ = self._icosahedron_h_representation(radius, center = np.array([x,y,z]))
-        pp      = Polyhedron(H, b)
         C       = output_matrix(dims= [0,1,2], state_dim = 6)  # Create output matrix for the given dimensions
+        pp      = Polyhedron(H@C, b)
 
-        super().__init__(polytope = pp, output_matrix = C, systems_id = systems_id, name = name)
+        super().__init__(polytope = pp, systems_id = systems_id, name = name)
 
     def _compute_plane_equation(self,v1, v2, v3):
         """

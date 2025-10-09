@@ -1,96 +1,53 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3.11
 
+# Copyright 2025, Gurobi Optimization, LLC
+
+# This example formulates and solves the following simple MIP model
+# using the matrix API:
+#  maximize
+#        x +   y + 2 z
+#  subject to
+#        x + 2 y + 3 z <= 4
+#        x +   y       >= 1
+#        x, y, z binary
+
+import gurobipy as gp
+from gurobipy import GRB
 import numpy as np
-from stl_tool.stl import (
-    GOp,
-    FOp,
-    UOp,
-    ContinuousLinearSystem,
-    BoxPredicate2d,
-    RegularPolygonPredicate2D,
-    Geq,
-)
-from stl_tool.environment import Map
-from stl_tool.polyhedron import Box2d, Polyhedron
+import scipy.sparse as sp
 
-import matplotlib.pyplot as plt
+try:
+    # Create a new model
+    m = gp.Model("matrix1")
 
+    # Create variables
+    x = m.addMVar(shape=3, vtype=GRB.BINARY, name="x")
 
-# ------- Create work space and map -------------
-workspace = Box2d(
-    x=0, y=0, size=10
-)  # square 10x10 (this is a 2d workspace, so the system it refers to must be 2d)
-map = Map(
-    workspace=workspace
-)  # the map object contains the workpace, but it also contains the obstacles of your environment.
+    # Set objective
+    obj = np.array([1.0, 1.0, 2.0])
+    m.setObjective(obj @ x, GRB.MAXIMIZE)
 
-# create obstacles
-# some simple boxes
-# map.add_obstacle(Box2d(x=3, y=3, size=1))
+    # Build (sparse) constraint matrix
+    val = np.array([1.0, 2.0, 3.0, -1.0, -1.0])
+    row = np.array([0, 0, 0, 1, 1])
+    col = np.array([0, 1, 2, 0, 1])
 
-# ------- System definition -------------
-# Initial conditions
-x0 = [-0.4, -0.15]
-# State and input bounds
-dx = 1.5
-du = 9.0
+    A = sp.csr_matrix((val, (row, col)), shape=(2, 3))
 
-A = np.block([[3, 1], [1, 2]])
-B = np.block([[1, 0], [1, 1]])
+    # Build rhs vector
+    rhs = np.array([4.0, -1.0])
 
-input_bounds = Box2d(x=0.0, y=0.0, size=du * 2)
+    # Add constraints
+    m.addConstr(A @ x <= rhs, name="c")
 
+    # Optimize model
+    m.optimize()
 
-print(input_bounds)
-input_bounds.plot(color="blue", alpha=0.5)
-plt.title("Input bounds")
+    print(x.X)
+    print(f"Obj: {m.ObjVal:g}")
 
-# create a continuous linear system with the given A and B matrices
-system = ContinuousLinearSystem(A, B, dt=0.1)
+except gp.GurobiError as e:
+    print(f"Error code {e.errno}: {e}")
 
-
-# --------- Predicate functions -------------
-# Goal positions
-pA = np.array([-0.3, 0.2])
-pB = np.array([0.35, 0.5])
-pC = np.array([0.35, -0.5])
-
-# Size of the square around the goal
-dA = 0.45
-dB = 0.45
-dC = 0.45
-
-
-# creates a box over the first three dimension  of the system (so on the positon).
-center = np.array([-0.0, 0.0])
-hX = BoxPredicate2d(size=dx, center=center, name="State bounds")
-h1 = BoxPredicate2d(size=dA, center=pA, name="Goal A")
-
-h2C = np.array([-10, 1])
-h2d = -2
-# h2H = Polyhedron(h2C, h2d)
-h2 = Geq(dims=[0, 1], state_dim=2, bound=h2d, name="Halfplane predicate")
-
-h3 = BoxPredicate2d(size=dB, center=pB, name="Goal B")
-h4 = BoxPredicate2d(size=dC, center=pC, name="Goal C")
-
-# --------- Formula definition -------------
-taG1 = 0.0
-tbG1 = 4.0
-formula1 = GOp(taG1, tbG1) >> h1
-
-taU2 = 5.0
-tbU2 = 8.0
-# formula2 = (GOp(0.0, taU2)) & (FOp(taU2, tbU2) >> h3)
-formula2 = FOp(taU2, tbU2) >> h3
-
-taF3 = 8.0
-tbF3 = 10.0
-formula3 = FOp(taF3, tbF3) >> h4
-
-formula = formula1 & formula2 & formula3
-
-
-fig, ax = map.draw_formula_predicate(formula=formula, alpha=0.2)
-
-plt.show()
+except AttributeError:
+    print("Encountered an attribute error")

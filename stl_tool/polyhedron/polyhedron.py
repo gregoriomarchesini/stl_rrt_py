@@ -549,7 +549,7 @@ class Polyhedron:
     def cross(self,other : "Polyhedron") -> "Polyhedron":
    
         """
-        Cartesian product of two polytopes. Polytopes are stacked vertically such that 
+        Cartesian product of two polytopes. 
 
         .. math: 
             A = diag(A1, A2, ... An)
@@ -667,10 +667,7 @@ class BoxNd(Polyhedron):
         if len(center) != n_dim:
             raise ValueError(f"center should be of length {n_dim}. Given : {len(center)}")
         
-
-        # create the polytope
-        A = np.vstack((np.eye(n_dim), -np.eye(n_dim)))
-        b = np.hstack((self.size,self.size)) / 2 + A @ self.center
+        A, b = box_polytope_matrices(center, size)
 
         super().__init__(A, b)
 
@@ -922,6 +919,54 @@ def fast_hypercube_vertices(n_dim, center=None, size=1.0):
     vertices = center + signs * scale
     
     return vertices
+
+
+def box_polytope_matrices(center:np.ndarray, size:float|list[float]) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Returns the H-representation (A, b) matrices of a box defined by its center and size.
+
+    :param center: Center of the box.
+    :type center: np.ndarray
+    :param size: Size of the box. If a single value is provided, it is used for all dimensions.
+    :type size: float or list[float]
+    :return: Tuple of (A, b) matrices defining the box as Ax <= b.
+    :rtype: tuple(numpy.ndarray, numpy.ndarray)
+    """
+    n_dim = len(center)
+
+    if isinstance(size, (int, float)):
+        size = np.array([size] * n_dim)
+    else:
+        size = np.array(size)
+
+    if len(size) != n_dim:
+        raise ValueError(f"Size must be of length {n_dim}. Given length: {len(size)}")
+
+    A = np.vstack((np.eye(n_dim), -np.eye(n_dim)))
+    b = np.hstack((size, size)) / 2 + A @ center
+
+    return A, b
+
+def box_polytope_matrices_from_bounds(lower_bounds: np.ndarray, upper_bounds: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Returns the H-representation (A, b) matrices of a box defined by its lower and upper bounds.
+
+    :param lower_bounds: Lower bounds of the box.
+    :type lower_bounds: np.ndarray
+    :param upper_bounds: Upper bounds of the box.
+    :type upper_bounds: np.ndarray
+    :return: Tuple of (A, b) matrices defining the box as Ax <= b.
+    :rtype: tuple(numpy.ndarray, numpy.ndarray)
+    """
+    if len(lower_bounds) != len(upper_bounds):
+        raise ValueError("Lower and upper bounds must have the same length.")
+
+    n_dim = len(lower_bounds)
+
+    A = np.vstack((np.eye(n_dim), -np.eye(n_dim)))
+    b = np.hstack((upper_bounds, -lower_bounds))
+
+    return A, b
 
 
 if __name__ == "__main__":

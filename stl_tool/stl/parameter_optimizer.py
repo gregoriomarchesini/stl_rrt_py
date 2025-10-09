@@ -18,7 +18,7 @@ from .logic         import (Formula,
 
 
 from .utils         import TimeInterval
-from .linear_system import ContinuousLinearSystem,output_matrix
+from .linear_system import ContinuousLinearSystem,output_matrix, MultiAgentSystem
 
 from ..polyhedron  import Polyhedron, BoxNd
 
@@ -310,10 +310,8 @@ class TaskScheduler:
 
             root          : Union[FOp,UOp,GOp]   = varphi.root                  # Temporal operator of the fomula.
             time_interval : TimeInterval         = varphi.root.interval         # Time interval of the formula.
-            C             : np.ndarray           = predicate_node.output_matrix # Output matrix of the predicate node.
             
-            
-            polytope = Polyhedron(A = predicate_node.polytope.A@C, b = predicate_node.polytope.b) # bring polytope to suitable dimension
+            polytope = Polyhedron(A = predicate_node.polytope.A, b = predicate_node.polytope.b) # bring polytope to suitable dimension
             task : AlwaysTask | EventuallyTask
             # Create barrier functions for each task
             
@@ -465,7 +463,7 @@ class TaskScheduler:
         ax.set_xlabel('Time')
         ax.set_ylabel("tasks")
         ax.set_yticks(range(len(tasks_schedules)))
-        ax.set_yticklabels([rf'\phi =  {schedule["type"]}  \mu' for schedule  in tasks_schedules])
+        ax.set_yticklabels([rf'$\phi =  {schedule["type"]}  \mu$' for schedule  in tasks_schedules])
         ax.grid(True)
 
 
@@ -625,14 +623,16 @@ class TaskScheduler:
 
 class BarriersOptimizer:
     
-    def __init__(self, tasks_list  : list[AlwaysTask|EventuallyTask], 
-                       workspace   : Polyhedron, 
-                       system      : ContinuousLinearSystem,
-                       input_bound : Polyhedron ,
-                       x_0         : np.ndarray,
+    def __init__(self, tasks_list          : list[AlwaysTask|EventuallyTask], 
+                       workspace           : Polyhedron, 
+                       system              : ContinuousLinearSystem,
+                       input_bound         : Polyhedron ,
+                       x_0                 : np.ndarray,
                        minimize_robustness : bool = True,
-                       k_gain   : float = -1.) -> None:
-        
+                       k_gain              : float = -1.,
+                       solver              : str = "MOSEK",
+                       relax_input_bounds  : bool = False) -> None:
+
         self.tasks_list        : list[AlwaysTask|EventuallyTask] = tasks_list
         self.workspace         : Polyhedron                      = workspace
         self.system            : ContinuousLinearSystem          = system
@@ -641,6 +641,8 @@ class BarriersOptimizer:
         self.minimize_r        : bool                            = minimize_robustness
         self.given_k_gain      : float                           = k_gain
         self.robustness        : float                           = 0. # initial guess for the robustness
+        self.solver            : str                             = solver
+        self.relax_input_bounds: bool                            = relax_input_bounds
 
         self.barriers                          : list[BarrierFunction]       = []
         self.time_varying_polytope_constraints : list[TimeVaryingConstraint] = []
@@ -770,10 +772,10 @@ class BarriersOptimizer:
         if self.input_bounds.num_dimensions != self.system.input_dim:
             raise ValueError("The input bounds polytope must be in the same dimension as the system input. Given input bounds are in dimension " +
                              str(self.input_bounds.num_dimensions) + ", while the system input dimension is " + str(self.system.input_dim))
-        
-        if not isinstance(self.system, ContinuousLinearSystem):
-            raise ValueError("The system must be a ContinuousLinearSystem.")
-        
+
+        if not isinstance(self.system, (ContinuousLinearSystem, MultiAgentSystem)):
+            raise ValueError("The system must be a ContinuousLinearSystem or MultiAgentSystem.")
+
         x_0 = self.x_0.flatten()
         if len(x_0) != self.workspace.num_dimensions:
             raise ValueError("The initial state must be a vector of the same dimension as the workspace.")
@@ -793,7 +795,7 @@ class BarriersOptimizer:
         A             = self.system.A
         B             = self.system.B
         slack         = cp.Variable(nonneg = True)
-        slack_penalty = 1E5
+        slack_penalty = 1E6
         
         UU = cp.Variable((self.system.input_dim, 2*num_vertices*num_intervals))  
 
@@ -803,52 +805,55 @@ class BarriersOptimizer:
         # Input constraints.
         constraints += [sparse.csc_matrix(self.input_bounds.A) @ UU <= self.input_bounds.b.reshape(-1,1)] # input constraints for all vertices at time s_j
 
-        # dynamic constraints
-        print("Preparing Vertex constraints")
-        for jj in tqdm(range(num_intervals)): # for each interval
-            
-            # Get two consecutive time intervals in the sequence.
-            s_j        = self.time_grid[jj]
-            s_j_plus_1 = self.time_grid[jj+1]-0.0001 # it is like the value at the limit
-            
-            U_j            = UU[:,jj*2*num_vertices:(jj+1)*2*num_vertices]     
-            dyn            = (A @ V + B @ U_j)  
-            
-            
-            # Forward-invariance constraints. 
-
-            ee = []
-            DD = []
-            cc = []
-            gamma_gamma = []
-            
-            for active_task_index in self.active_barriers_map(s_j): # for each active task
-                barrier = self.barriers[active_task_index] 
+        # dynamic constraints (Note : this is the most computationally intensive constraint)
+        if not self.relax_input_bounds:
+            print("Adding Dynamic Inoput Constraints")
+            for jj in tqdm(range(num_intervals)): # for each interval
                 
-               
-                D_high_order  =  barrier.D_high_order 
-
-                c_high_order  = barrier.c_high_order.reshape((-1,1))
-
-                gamma_s_j        = cp.hstack([barrier.gamma_at_time(s_j).reshape((-1,1))]*num_vertices) # gamma function for a given section
-                gamma_s_j_plus_1 = cp.hstack([barrier.gamma_at_time(s_j_plus_1).reshape((-1,1))]*num_vertices) # gamma function for a given section  
-                gamma            = cp.hstack([gamma_s_j, gamma_s_j_plus_1]) # gamma function for a given section 
+                # Get two consecutive time intervals in the sequence.
+                s_j        = self.time_grid[jj]
+                s_j_plus_1 = self.time_grid[jj+1]-0.0001 # it is like the value at the limit
                 
-                e_s_j            = cp.hstack([barrier.e_vector(s_j).reshape((-1,1))]*num_vertices) # e vector for a given section
-                e_s_j_plus_1     = cp.hstack([barrier.e_vector(s_j_plus_1).reshape((-1,1))] * num_vertices) # e vector for a given section
-                e                = cp.hstack([e_s_j, e_s_j_plus_1]) # e vector for a given section
-                   
-                ee.append(e)
-                DD.append(D_high_order)
-                cc.append(c_high_order)
-                gamma_gamma.append(gamma)
-
-            ee    = cp.vstack(ee) # e vector for a given section
-            DD    = cp.vstack(DD) # D matrix for a given section
-            cc    = cp.vstack(cc) # c vector for a given section
-            gamma_gamma = cp.vstack(gamma_gamma) # gamma function for a given section
+                U_j            = UU[:,jj*2*num_vertices:(jj+1)*2*num_vertices]     
+                dyn            = (A @ V + B @ U_j)  
                 
-            constraints  += [DD @ dyn + ee + k_gain * (DD @ V + cc + gamma_gamma ) + slack >= 0]
+                
+                # Forward-invariance constraints. 
+
+                ee = []
+                DD = []
+                cc = []
+                gamma_gamma = []
+                
+                for active_task_index in self.active_barriers_map(s_j): # for each active task
+                    
+                    barrier       = self.barriers[active_task_index] 
+                    
+                    D_high_order  = barrier.D_high_order 
+                    c_high_order  = barrier.c_high_order.reshape((-1,1))
+
+                    gamma_s_j        = cp.hstack([barrier.gamma_at_time(s_j).reshape((-1,1))]*num_vertices) 
+                    gamma_s_j_plus_1 = cp.hstack([barrier.gamma_at_time(s_j_plus_1).reshape((-1,1))]*num_vertices)   
+                    gamma            = cp.hstack([gamma_s_j, gamma_s_j_plus_1]) 
+                    
+                    e_s_j            = cp.hstack([barrier.e_vector(s_j).reshape((-1,1))]*num_vertices) 
+                    e_s_j_plus_1     = cp.hstack([barrier.e_vector(s_j_plus_1).reshape((-1,1))] * num_vertices) 
+                    e                = cp.hstack([e_s_j, e_s_j_plus_1]) 
+                    
+                    ee.append(e)
+                    DD.append(D_high_order)
+                    cc.append(c_high_order)
+                    gamma_gamma.append(gamma)
+
+                ee    = cp.vstack(ee) # e vector for a given section
+                DD    = cp.vstack(DD) # D matrix for a given section
+                cc    = cp.vstack(cc) # c vector for a given section
+                gamma_gamma = cp.vstack(gamma_gamma) # gamma function for a given section
+                    
+                constraints  += [DD @ dyn + ee + k_gain * (DD @ V + cc + gamma_gamma ) + slack >= 0]
+
+        else:
+            print("Skipping Dynamic Input Constraints")
                     
 
         # Add flatness constraint
@@ -874,7 +879,7 @@ class BarriersOptimizer:
             c_at_beta_l     = [] 
 
             for l_tilde in self.active_barriers_map(betas[l-1]) : # barriers active at lim t-> - beta_l is equal to the one active at time beta_{l-1}
-                gamma_at_beta_l.append(self.barriers[l_tilde].gamma_at_time(beta_l-0.00001).reshape((-1,1)) )# gamma function for a given section
+                gamma_at_beta_l.append(self.barriers[l_tilde].gamma_at_time(beta_l).reshape((-1,1)) )# gamma function for a given section
                 D_at_beta_l.append(self.barriers[l_tilde].D  )
                 c_at_beta_l.append(self.barriers[l_tilde].c.reshape((-1,1)))# c vector
 
@@ -931,7 +936,7 @@ class BarriersOptimizer:
                     k_gain.value = k_val
                     
                     try :
-                        problem.solve(warm_start=True, verbose=False, solver="MOSEK")
+                        problem.solve(warm_start=True, verbose=False, solver=self.solver)
                         pbar.update(1)
                     except Exception as e:
                         pbar.update(1)
@@ -952,16 +957,16 @@ class BarriersOptimizer:
             if not good_k_found:
                 print("No good k found. Please increase the range of k. Returing k with minimum violation")
                 k_gain.value = best_k
-                problem.solve(warm_start=True, verbose=False, solver="MOSEK")
+                problem.solve(warm_start=True, verbose=False, solver=self.solver)
             else:
                 k_gain.value = best_k
-                problem.solve(warm_start=True, verbose=False,solver="MOSEK")
+                problem.solve(warm_start=True, verbose=False,solver=self.solver )
         else:
             print("Given k_gain:",self.given_k_gain)
             k_gain.value = self.given_k_gain
 
             try :
-                problem.solve(warm_start=True, verbose=True, ignore_dpp = True,solver="MOSEK")
+                problem.solve(warm_start=True, verbose=True, ignore_dpp = True,solver=self.solver)
             except Exception as e :
                 print(f"Error in solving the problem with given k_gain {self.given_k_gain}. The error is the following")
                 raise e
@@ -1036,11 +1041,11 @@ class BarriersOptimizer:
 
 
         for jj,barrier in enumerate(self.barriers):
-            barrier.plot_gamma(ax,c=colors[jj], label = fr"$\gamma(t)_{jj}$")
+            barrier.plot_gamma(ax,c=colors[jj], label = fr"$\gamma_{jj}(t)$")
             
         
         ax.axhline(0, color='black', linestyle='--', label = "Zero level")
-        ax.set_title("Barrier functions")
+        ax.set_title(r"$\gamma(t)$")
         ax.set_xlabel("Time")
         ax.set_ylabel(r"$\gamma(t)$")
         ax.grid()
@@ -1102,14 +1107,15 @@ class BarriersOptimizer:
 
 def compute_polyhedral_constraints( formula      : Formula, 
                                     workspace    : Polyhedron, 
-                                    system       : ContinuousLinearSystem, 
+                                    system       : ContinuousLinearSystem|MultiAgentSystem, 
                                     input_bounds : Polyhedron, 
                                     x_0          : np.ndarray,
                                     plot_results : bool = False,
                                     k_gain       : float = -1.,
-                                    polytope_file_name: str = "tvc_polytope.json") -> tuple[list["TimeVaryingConstraint"],float]:
-    
-    
+                                    solver       : str = "CLARABEL",
+                                    relax_input_bounds : bool = False) -> tuple[list["TimeVaryingConstraint"],float]:
+
+
     """
     :param formula: The formula to be optimized.
     :type formula: Formula
@@ -1133,8 +1139,9 @@ def compute_polyhedral_constraints( formula      : Formula,
                                           system       = system,
                                           input_bound  = input_bounds,
                                           x_0          = x_0,
-                                          k_gain       = k_gain)
-    barrier_optimizer.save_polytopes(polytope_file_name)
+                                          k_gain       = k_gain,
+                                          solver       = solver,
+                                          relax_input_bounds=relax_input_bounds) # create barrier optimizer
     
     if plot_results :
         scheduler.show_time_schedule()
@@ -1299,100 +1306,3 @@ class TimeVaryingConstraint:
         ax.set_title(f'Time-Varying Constraint [{self.start_time}, {self.end_time}]')
         ax.set_xlabel('x')
         ax.set_ylabel('y')
-    
-
-
-class MultiAgentSystem:
-    """ 
-    Class to create a homogenoeus multi-agent system of single integrator agents.
-    """
-    def __init__(self, num_agents:int, agent_dim : int, input_bound : float) -> None:
-        
-        self.num_agents : int                          = num_agents
-        self.agent_dim  : int                          = agent_dim
-        self.system_dim : int                          = num_agents * agent_dim
-        self.max_input  : float                        = input_bound # input bound for each agent
-
-
-        # for now only support 3d or 2d
-        if agent_dim not in [2,3]:
-            raise ValueError("The system dimension must be either 2 or 3 for 2D single integrator agnets and 3D single integrator agents respectively.")
-
-        self.edges      : list[tuple[int,int,Formula]] = []
-        self.agents     : list[int]                    = range(num_agents) # list of agents
-
-        self.A          : np.ndarray = np.zeros((self.system_dim,self.system_dim)) # system dynamics matrix
-        self.B          : np.ndarray = np.eye(self.system_dim)   # system input matrix
-
-    def get_system(self) -> ContinuousLinearSystem:
-        """
-        Returns the system matrices A and B of the multi-agent system.
-        
-        :return: the continuous linear system representation of the multi-agent system.
-        :rtype: ContinuousLinearSystem
-        """
-
-        return ContinuousLinearSystem(A=  self.A, B = self.B)
-    
-    def input_bound(self) -> Polyhedron:
-        """
-        Returns the input bounds of the multi-agent system.
-        
-        :return: the input bounds of the multi-agent system as a Polyhedron.
-        :rtype: Polyhedron
-        """
-        
-        return BoxNd(n_dim = self.system_dim, size = self.max_input*2)
-    
-        
-    def add_edge_task(self, agent1:int , agent2:int, task_type : str, start : float, end : float , center : np.ndarray, size : list[float]|float,) -> None:
-        """
-        Creates a relative formation task using box predicates
-        """
-        
-        if not (0 <= agent1 <= self.num_agents-1) or not (0 <= agent2 <= self.num_agents-1):
-            raise ValueError("Agent indices must be within the range of the number of agents (i.e. between 0 and num_agents-1)")
-        
-        
-        center = np.array(center).flatten()
-        if len(center) != self.agent_dim:
-            raise ValueError(f"The center must be a {self.agent_dim}D vector. Given center: {center}")
-        
-        
-        if not isinstance(size, list):
-            size = float(size)
-            size = np.array([size] *self.agent_dim)
-        else:
-            size = np.array(size).flatten()
-            if len(size) != self.agent_dim:
-                raise ValueError(f"The size must be a {self.agent_dim}D vector. Given size length: {len(size)}")
-       
-        hypercube = Polyhedron.hypercube(n_dim= self.agent_dim, center = center, size = size)
-        
-        
-        selection_vector         = np.zeros(self.num_agents)
-        selection_vector[agent1] = 1
-        selection_vector[agent2] = -1 
-        C                        = np.kron(selection_vector, np.eye(self.agent_dim)) # output matrix for the relative formation task such that Cx = x_agent1 - x_agent2
-
-
-        predicate = Predicate(polytope = hypercube, output_matrix= C)
-        if task_type == "G" :
-            task = GOp(a = start, b = end) >> predicate
-        elif task_type == "F" :
-            task = FOp(a = start, b = end) >> predicate
-        else:
-            raise ValueError("Task type must be either 'G' for globally or 'F' for eventually.")
-    
-        
-        self.edges.append((agent1, agent2, task))
-    
-
-    def get_global_formula(self) -> Formula:
-        
-        task = Formula() # start with an emtpy formula
-        for a1,a2,edge_task in self.edges:
-            
-            task = task & edge_task
-
-        return task

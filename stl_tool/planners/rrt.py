@@ -183,7 +183,7 @@ class StlRRTStar :
                                 horizon = self.prediction_steps, 
                                 Q       = Q, 
                                 R       = R, 
-                                solver  = "MOSEK",
+                                solver  = "CLARABEL",
                                 slack_penalty = "LINEAR")
 
         # Add input magnitude constraint (elevator angle limited to ±15°)

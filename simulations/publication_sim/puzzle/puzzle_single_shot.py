@@ -10,8 +10,8 @@ from stl_tool.stl                     import (GOp,
                                               compute_polyhedral_constraints,
                                               TimeVaryingConstraint)
 from stl_tool.environment             import Map
-from stl_tool.polyhedron                import Box2d
-
+from stl_tool.polyhedron              import Box2d
+from stl_tool.stl.logic               import Formula
 from stl_tool.planners import StlRRTStar
 from json import loads
 import os 
@@ -42,6 +42,10 @@ input_bounds  = Box2d(x = 0.,y = 0.,size = max_input*2)
 print("System max input bounds:", max_input)
 print("System dynamics:", A)
 
+system.add_state_naming("x", 0)
+system.add_state_naming("y", 1)
+system.add_state_naming("pos", [0,1])
+
 ##########################################################
 # STL specifications
 ##########################################################
@@ -50,23 +54,44 @@ named_map = {item["name"]: item for item in map_json}
 
 # first interest point
 intrest_point = named_map["interest_2"]
-p1 = BoxPredicate2d(size = intrest_point["size_x"], center = np.array([intrest_point["center_x"], intrest_point["center_y"]]), name = "interest_1")
+p1 = system.get_box_predicate_on_state_name(size           = intrest_point["size_x"], 
+                                            center         = np.array([intrest_point["center_x"], intrest_point["center_y"]]), 
+                                            state_name     = "pos", 
+                                            predicate_name = "interest_1")
 # second interest point
 intrest_point = named_map["interest_6"]
-p2 = BoxPredicate2d(size = intrest_point["size_x"], center = np.array([intrest_point["center_x"], intrest_point["center_y"]]), name = "interest_2")
+p2 = system.get_box_predicate_on_state_name(size           = intrest_point["size_x"], 
+                                            center         = np.array([intrest_point["center_x"], intrest_point["center_y"]]), 
+                                            state_name     = "pos", 
+                                            predicate_name = "interest_2")
 # third interest point
 intrest_point = named_map["interest_3"]
-p3 = BoxPredicate2d(size = intrest_point["size_x"], center = np.array([intrest_point["center_x"], intrest_point["center_y"]]), name = "interest_3")
+p3 = system.get_box_predicate_on_state_name(size           = intrest_point["size_x"], 
+                                            center         = np.array([intrest_point["center_x"], intrest_point["center_y"]]), 
+                                            state_name     = "pos", 
+                                            predicate_name = "interest_3")
 
 intrest_point = named_map["interest_4"]
-p4 = BoxPredicate2d(size = intrest_point["size_x"], center = np.array([intrest_point["center_x"], intrest_point["center_y"]]), name = "interest_3")
+p4 = system.get_box_predicate_on_state_name(size           = intrest_point["size_x"], 
+                                            center         = np.array([intrest_point["center_x"], intrest_point["center_y"]]), 
+                                            state_name     = "pos", 
+                                            predicate_name = "interest_4")
 
 # charging_station 
 intrest_point = named_map["charging_station"]
-c_station     = BoxPredicate2d(size = intrest_point["size_x"], center = np.array([intrest_point["center_x"], intrest_point["center_y"]]), name = "charging_station")
+c_station     = system.get_box_predicate_on_state_name(size           = intrest_point["size_x"], 
+                                                       center         = np.array([intrest_point["center_x"], intrest_point["center_y"]]), 
+                                                       state_name     = "pos", 
+                                                       predicate_name = "charging_station")
 
-formula1       =  (FOp(20,25) >> p1)  & (FOp(150,155) >> p2) & (GOp(0.01,200) >>  (FOp(0,140) >> c_station)) & (GOp(260,265) >> p3)
-formula2       =  (FOp(20,25) >> p2)  & (FOp(150,155) >> p3) & (GOp(0.01,200) >>  (FOp(0,140) >> c_station)) & (GOp(260,265) >> p1)
+formula1      :Formula =  (FOp(20,25) >> p1)  & (FOp(150,155) >> p2) & (GOp(0.01,200) >>  (FOp(0,140) >> c_station)) & (GOp(260,265) >> p3)
+formula2      :Formula =  (FOp(20,25) >> p2)  & (FOp(150,155) >> p3) & (GOp(0.01,200) >>  (FOp(0,140) >> c_station)) & (GOp(260,265) >> p1)
+
+# Printing
+print("Id of systems involved in the formula 1:")
+print(formula1.systems_in_the_formula())
+print("Id of systems involved in the formula 2:")
+print(formula2.systems_in_the_formula())
 
 # formula       =  (FOp(20,25) >> p1)  & (FOp(150,155) >> p2)
 fig,ax = map.draw_formula_predicate(formula = formula1, alpha =0.2)
@@ -126,8 +151,7 @@ rrt_planner     = StlRRTStar(start_state     = x_0,
                             rewiring_radius  = 25,
                             rewiring_ratio   = 2.,
                             verbose          = True,
-                            biasing_ratio    = 1.5,
-                            )
+                            biasing_ratio    = 1.5,)
 
 
 solution, stats = rrt_planner.plan()
