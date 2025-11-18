@@ -20,5 +20,5 @@ dependencies = [
   "casadi"
 ]
 
-[tool.setuptools]
-packages = ["stl_tool"]
+[tool.setuptools.packages.find]
+where = ["."]
