@@ -107,8 +107,10 @@ class ContinuousLinearSystem:
         :return: indices of the state variables
         :rtype: list[int]
         """
-
-        if name not in self.state_naming:
+        
+        if name == "all":
+            return list(range(self.A.shape[0]))
+        elif name not in self.state_naming:
             raise ValueError(self._error_msg() + f"System {self.name} does not contain state {name}. You should should provide a naming for your state variables using the method 'add_state_naming'")
 
         return self.state_naming[name]
@@ -469,15 +471,38 @@ class MultiAgentSystem:
             raise ValueError(f"System with name {name} not found in the multi-agent system")
         
 
-    def get_system_dimensions(self, system_name: str , state_name :str):
-        
-
-      
+    def get_system_state_dims(self, system_name: str , state_name :str = "all") -> list[int]:
+              
         system = self.systems_by_name.get(system_name)
         if system is None:
             raise ValueError(f"System {system_name} not found in the multi-agent system")
 
         dims = system.get_dims_from_state_name(state_name)
+
+        idx = list(self.systems_by_name.keys()).index(system_name)
+        from_dim = sum(sys.state_dim for sys in self.systems[:idx]) 
+        dims = [from_dim + d for d in dims]
+
+        # positions of the 
+        return dims
+    
+    def get_system_input_dims(self, system_name: str):
+        """
+        Get the input dimensions of a system by its name.
+        
+        :param system_name: name of the system
+        :type system_name: str
+        :return: input dimensions of the system
+        :rtype: list[int]
+        """
+        system = self.systems_by_name.get(system_name)
+        if system is None:
+            raise ValueError(f"System {system_name} not found in the multi-agent system")
+
+        idx = list(self.systems_by_name.keys()).index(system_name)
+        from_dim = sum(sys.input_dim for sys in self.systems[:idx]) 
+        dims = [from_dim + d for d in range(system.input_dim)]
+
         return dims
 
     def _relative_state_output_matrix(self, system_1: str | int, system_2: str |int , dims_1: list[int]|int, dims_2: list[int]|int) -> np.ndarray:

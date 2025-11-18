@@ -629,7 +629,7 @@ class BarriersOptimizer:
                        input_bound         : Polyhedron ,
                        x_0                 : np.ndarray,
                        minimize_robustness : bool = True,
-                       k_gain              : float = -1.,
+                       kappa_gain              : float = -1.,
                        solver              : str = "MOSEK",
                        relax_input_bounds  : bool = False) -> None:
 
@@ -639,7 +639,8 @@ class BarriersOptimizer:
         self.input_bounds      : Polyhedron                      = input_bound
         self.x_0               : np.ndarray                      = x_0
         self.minimize_r        : bool                            = minimize_robustness
-        self.given_k_gain      : float                           = k_gain
+        self.given_kappa_gain  : float                           = kappa_gain
+        self.best_kappa_gain   : float                           = kappa_gain
         self.robustness        : float                           = 0. # initial guess for the robustness
         self.solver            : str                             = solver
         self.relax_input_bounds: bool                            = relax_input_bounds
@@ -917,7 +918,7 @@ class BarriersOptimizer:
             problem    = cp.Problem(cp.Minimize(cost+slack_cost), constraints)
 
 
-        if self.given_k_gain < 0.:
+        if self.given_kappa_gain < 0.: # if a k_gain was not given
             good_k_found = False
 
             print("Selecting a good gain k ...")
@@ -957,18 +958,21 @@ class BarriersOptimizer:
             if not good_k_found:
                 print("No good k found. Please increase the range of k. Returing k with minimum violation")
                 k_gain.value = best_k
+                self.best_kappa_gain = best_k
                 problem.solve(warm_start=True, verbose=False, solver=self.solver)
             else:
                 k_gain.value = best_k
+                self.best_kappa_gain = best_k
                 problem.solve(warm_start=True, verbose=False,solver=self.solver )
-        else:
-            print("Given k_gain:",self.given_k_gain)
-            k_gain.value = self.given_k_gain
+        
+        else: # if a k_gain was given
+            print("Given k_gain:",self.given_kappa_gain)
+            k_gain.value = self.given_kappa_gain
 
             try :
                 problem.solve(warm_start=True, verbose=True, ignore_dpp = True,solver=self.solver)
             except Exception as e :
-                print(f"Error in solving the problem with given k_gain {self.given_k_gain}. The error is the following")
+                print(f"Error in solving the problem with given k_gain {self.given_kappa_gain}. The error is the following")
                 raise e
 
         print("===========================================================")
@@ -1111,7 +1115,7 @@ def compute_polyhedral_constraints( formula      : Formula,
                                     input_bounds : Polyhedron, 
                                     x_0          : np.ndarray,
                                     plot_results : bool = False,
-                                    k_gain       : float = -1.,
+                                    kappa_gain   : float = -1.,
                                     solver       : str = "CLARABEL",
                                     relax_input_bounds : bool = False) -> tuple[list["TimeVaryingConstraint"],float]:
 
@@ -1139,7 +1143,7 @@ def compute_polyhedral_constraints( formula      : Formula,
                                           system       = system,
                                           input_bound  = input_bounds,
                                           x_0          = x_0,
-                                          k_gain       = k_gain,
+                                          kappa_gain       = kappa_gain,
                                           solver       = solver,
                                           relax_input_bounds=relax_input_bounds) # create barrier optimizer
     
@@ -1149,9 +1153,10 @@ def compute_polyhedral_constraints( formula      : Formula,
         barrier_optimizer.plot_gammas()
     
     time_varying_constraints : list["TimeVaryingConstraint"] = barrier_optimizer.get_barrier_as_time_varying_polyhedrons()
-    robustness :float = barrier_optimizer.get_robustness()
+    kappa_gain               : float = barrier_optimizer.best_kappa_gain
+    robustness               :float = barrier_optimizer.get_robustness()
     
-    return time_varying_constraints, robustness
+    return time_varying_constraints, robustness, kappa_gain
             
 
 class TimeVaryingConstraint:
@@ -1306,3 +1311,15 @@ class TimeVaryingConstraint:
         ax.set_title(f'Time-Varying Constraint [{self.start_time}, {self.end_time}]')
         ax.set_xlabel('x')
         ax.set_ylabel('y')
+
+    def is_active(self, t: float) -> bool:
+        """
+        Check if the constraint is active at time t.
+        
+        Args:
+            t: Time to check.
+
+        Returns:
+            bool: True if the constraint is active at time t, False otherwise.
+        """
+        return self.start_time <= t <= self.end_time

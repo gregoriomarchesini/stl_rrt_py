@@ -85,7 +85,7 @@ time_varying_constraints, robustness                   = compute_polyhedral_cons
                                                                                         input_bounds = input_bounds,
                                                                                         x_0          = x_0,
                                                                                         plot_results = True,
-                                                                                        k_gain       = 0.070,)
+                                                                                        kappa_gain       = 0.070,)
 
 # print(len(time_varying_constraints), "time varying constraints")
 # for tvc in time_varying_constraints:

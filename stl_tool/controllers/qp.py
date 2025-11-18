@@ -1,16 +1,16 @@
-from stl_tool.stl import ContinuousLinearSystem,TimeVaryingConstraint
+from stl_tool.stl import ContinuousLinearSystem,TimeVaryingConstraint, MultiAgentSystem
 from stl_tool.polyhedron import Polyhedron
 import cvxpy as cp
 import numpy as np
 
 
 class QPController:
-    def __init__(self, system : ContinuousLinearSystem, input_bounds : Polyhedron , constraints : list[TimeVaryingConstraint]):
+    def __init__(self, system : ContinuousLinearSystem | MultiAgentSystem, input_bounds : Polyhedron , constraints : list[TimeVaryingConstraint]):
 
-        self.system                   : ContinuousLinearSystem      = system
-        self.input_bounds             : Polyhedron                  = input_bounds
-        self.time_varying_constraints : list[TimeVaryingConstraint] = constraints
-        self.dt                       : float                       = system.dt
+        self.system                   : ContinuousLinearSystem | MultiAgentSystem = system
+        self.input_bounds             : Polyhedron                                = input_bounds
+        self.time_varying_constraints : list[TimeVaryingConstraint]               = constraints
+        self.dt                       : float                                     = system.dt
         
         self.x_now  = cp.Variable((system.A.shape[0],), name = "x")
         self.t_next = cp.Parameter()
@@ -19,10 +19,10 @@ class QPController:
         self.switch  = cp.Parameter(len(constraints), boolean = True,name = "switch")
         self.problem : cp.Problem = None
 
-        self._set_up()
+        self._setup()
 
     
-    def _set_up(self) :
+    def _setup(self) :
         
 
         cost        = cp.sum_squares(self.u_var)
