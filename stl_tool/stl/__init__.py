@@ -1,4 +1,4 @@
-from stl_tool.stl.logic import FOp, GOp, UOp, Predicate, Formula
+from stl_tool.stl.logic import FOp, GOp, UOp, Predicate, Formula, TimeInterval, get_fomula_type_and_predicate_node, OrOperator, AndOperator 
 from stl_tool.stl.linear_system import ContinuousLinearSystem,ISSDeputy,SingleIntegrator3d
 
 from stl_tool.stl.parameter_optimizer import TaskScheduler,BarriersOptimizer, TimeVaryingConstraint, compute_polyhedral_constraints, MultiAgentSystem
@@ -26,4 +26,8 @@ __all__ = [
     "MultiAgentSystem",
     "Geq",
     "Leq",
+    "TimeInterval",
+    "get_fomula_type_and_predicate_node",
+    "OrOperator",
+    "AndOperator"
 ]
