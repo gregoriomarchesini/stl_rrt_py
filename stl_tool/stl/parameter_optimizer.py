@@ -997,9 +997,8 @@ class BarriersOptimizer:
             print("Barrier r       : ", barrier.r_var.value)
             print("---------------------------------------------------")
 
-        if problem.status != cp.OPTIMAL:
-            print("Problem is not optimal. Terminate!")
-            exit()
+        if problem.status == cp.INFEASIBLE or problem.status == cp.UNBOUNDED or problem.status == cp.INFEASIBLE_INACCURATE:
+            raise Exception("Problem is infeasible or unbounded. The returned status is " + str(problem.status))
         
         # saving constraints as time_state constraints
         for barrier in self.barriers:
@@ -1116,7 +1115,7 @@ def compute_polyhedral_constraints( formula      : Formula,
                                     x_0          : np.ndarray,
                                     plot_results : bool = False,
                                     kappa_gain   : float = -1.,
-                                    solver       : str = "CLARABEL",
+                                    solver       : str = "MOSEK",
                                     relax_input_bounds : bool = False) -> tuple[list["TimeVaryingConstraint"],float]:
 
 

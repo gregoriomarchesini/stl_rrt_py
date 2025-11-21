@@ -103,14 +103,14 @@ x_0       = c_station.polytope.sample_random()
 map.show_point(x_0, color = 'r', label = 'start') # show start point
 
 
-time_varying_constraints1,robustness_1   = compute_polyhedral_constraints(formula      =  formula1,
+time_varying_constraints1,robustness_1,kappa_gain_1   = compute_polyhedral_constraints(formula      =  formula1,
                                                                           workspace    = workspace, 
                                                                           system       = system,
                                                                           input_bounds = input_bounds,
                                                                           x_0          = x_0,
                                                                           plot_results = True)
 
-time_varying_constraints2, robustness_2 = compute_polyhedral_constraints(formula      =  formula2,
+time_varying_constraints2, robustness_2, kappa_gain_2 = compute_polyhedral_constraints(formula      =  formula2,
                                                                          workspace    = workspace, 
                                                                          system       = system,
                                                                          input_bounds = input_bounds,

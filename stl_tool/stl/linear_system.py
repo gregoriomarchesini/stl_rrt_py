@@ -313,6 +313,10 @@ class ContinuousLinearSystem:
         self.ubu = np.array(ubu).flatten()
         self.lbu = np.array(lbu).flatten()  
 
+    @classmethod
+    def counter(cls):
+        return cls.__counter
+
 
 
 
@@ -890,8 +894,8 @@ class DoubleIntegrator3d(ContinuousLinearSystem):
         B = np.block([[np.zeros((3,3))],
                       [np.eye(3)]])
         super().__init__(A, B, dt = dt, name = name + f"_{self.__counter}" if name == "DoubleIntegrator3d" else name)
-        self.add_state_naming([0,1,2], 'position')
-        self.add_state_naming([3,4,5], 'velocity')
+        self.add_state_naming('position',[0,1,2])
+        self.add_state_naming('velocity',[3,4,5])
         self.add_state_naming('x', 0)
         self.add_state_naming('y', 1)
         self.add_state_naming('z', 2)
@@ -912,8 +916,8 @@ class DoubleIntegrator2d(ContinuousLinearSystem):
         B = np.block([[np.zeros((2,2))],
                       [np.eye(2)]])
         super().__init__(A, B, dt = dt, name = name + f"_{self.__counter}" if name == "DoubleIntegrator2d" else name)
-        self.add_state_naming([0,1], 'position')
-        self.add_state_naming([2,3], 'velocity')
+        self.add_state_naming('position',[0,1])
+        self.add_state_naming('velocity',[2,3])
         self.add_state_naming('x', 0)
         self.add_state_naming('y', 1)
         self.add_state_naming('vx', 2)
@@ -928,10 +932,10 @@ class ISSDeputy(ContinuousLinearSystem):
         """
         # Define the orbital radius of the chief satellite (ISS)
         A,B = self.cw_dynamics_matrix(r0)
-        super().__init__(A, B, dt = dt, name = name + f"_{self.__counter}" if name == "ISSDeputy" else name)
+        super().__init__(A, B, dt = dt, name = name + f"_{super().counter()}" if name == "ISSDeputy" else name)
 
-        self.add_state_naming([0,1,2], 'position')
-        self.add_state_naming([3,4,5], 'velocity')
+        self.add_state_naming('position',[0,1,2])
+        self.add_state_naming('velocity',[3,4,5])
         self.add_state_naming('x', 0)
         self.add_state_naming('y', 1)
         self.add_state_naming('z', 2)

@@ -79,7 +79,7 @@ fig,ax = map.draw_formula_predicate(formula = formula, alpha = 0.2)
 x_0       = np.array([-100., 0., -50., 0.,0. , 0.]) # initial state
 map.show_point(x_0, color = 'r', label = 'start') # show start point
 
-time_varying_constraints,robustness  = compute_polyhedral_constraints(formula      =  formula,
+time_varying_constraints,robustness, kappa_gain  = compute_polyhedral_constraints(formula      =  formula,
                                                                       workspace    = workspace, 
                                                                       system       = system,
                                                                       input_bounds = input_bounds,
