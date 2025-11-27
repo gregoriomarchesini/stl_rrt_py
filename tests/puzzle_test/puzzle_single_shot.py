@@ -8,7 +8,8 @@ from stl_tool.stl                     import (GOp,
                                               ContinuousLinearSystem, 
                                               BoxPredicate2d,
                                               compute_polyhedral_constraints,
-                                              TimeVaryingConstraint)
+                                              TimeVaryingConstraint,
+                                              plot_time_varying_constraints)
 from stl_tool.environment             import Map
 from stl_tool.polyhedron                import Box2d
 
@@ -92,37 +93,36 @@ time_varying_constraints2, robustness_2 = compute_polyhedral_constraints(formula
                                                                          x_0          = x_0,
                                                                          plot_results = True)
 
+plot_time_varying_constraints(time_varying_constraints1, ax = ax)
+# # ########################################################
+# # # Create RRT solver
+# # ########################################################
+
+# if robustness_2 >= robustness_1:
+#     time_varying_constraints = time_varying_constraints2
+#     print("Using formula 2")
+# else:
+#     time_varying_constraints = time_varying_constraints1
+#     print("Using formula 1")
+
+# rrt_planner     = StlRRTStar(start_state     = x_0,
+#                             system           = system,
+#                             prediction_steps = 5,
+#                             stl_constraints  = time_varying_constraints ,
+#                             map              = map,
+#                             max_input        = max_input,
+#                             max_iter         = 700,
+#                             space_step_size  = 2.8,
+#                             rewiring_radius  = 25,
+#                             rewiring_ratio   = 2.,
+#                             verbose          = True,
+#                             biasing_ratio    = 1.5,
+#                             )
 
 
-# ########################################################
-# # Create RRT solver
-# ########################################################
+# solution, stats = rrt_planner.plan()
+# fig,ax = rrt_planner.plot_rrt_solution(ax = ax, solution_only= True)
 
-if robustness_2 >= robustness_1:
-    time_varying_constraints = time_varying_constraints2
-    print("Using formula 2")
-else:
-    time_varying_constraints = time_varying_constraints1
-    print("Using formula 1")
-
-rrt_planner     = StlRRTStar(start_state     = x_0,
-                            system           = system,
-                            prediction_steps = 5,
-                            stl_constraints  = time_varying_constraints ,
-                            map              = map,
-                            max_input        = max_input,
-                            max_iter         = 700,
-                            space_step_size  = 2.8,
-                            rewiring_radius  = 25,
-                            rewiring_ratio   = 2.,
-                            verbose          = True,
-                            biasing_ratio    = 1.5,
-                            )
-
-
-solution, stats = rrt_planner.plan()
-fig,ax = rrt_planner.plot_rrt_solution(ax = ax, solution_only= True)
-
-rrt_planner.show_statistics()
+# rrt_planner.show_statistics()
 
 plt.show()

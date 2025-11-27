@@ -1,3 +1,4 @@
+from csv import writer
 import numpy as np
 import cvxpy as cp
 
@@ -7,6 +8,7 @@ from   tqdm       import tqdm
 import json
 from scipy import sparse
 from multiprocessing import Pool
+from matplotlib.animation import FFMpegWriter
 
 
 from .logic         import (Formula, 
@@ -1299,6 +1301,74 @@ class TimeVaryingConstraint:
         ax.set_title(f'Time-Varying Constraint [{self.start_time}, {self.end_time}]')
         ax.set_xlabel('x')
         ax.set_ylabel('y')
+
+
+def plot_time_varying_constraints(constraints : list[TimeVaryingConstraint], ax = None, filename="constraints.mp4"):
+    """
+    Animate time-varying polytope constraints WITHOUT clearing the axes.
+    Removes only the new artists added in each frame.
+    """
+
+    t_start = min(c.start_time for c in constraints)
+    t_end   = max(c.end_time for c in constraints)
+    t_range = np.linspace(t_start, t_end, 120)
+    
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(8, 4))
+    else:
+        fig = ax.figure
+
+    writer = FFMpegWriter(fps=30)
+
+    # Persistent axis config
+    ax.set_aspect("equal", adjustable="box")
+    ax.set_title("Time-varying constraints")
+
+    with writer.saving(fig, filename, dpi=150):
+
+        prev_fill = None
+        prev_lines = []
+
+        for t in t_range:
+
+            # Remove previous frame
+            if prev_fill is not None:
+                prev_fill.remove()
+                prev_fill = None
+            for line in prev_lines:
+                line.remove()
+            prev_lines = []
+
+            # Build polytopes active at time t
+            polytopes = []
+            for c in constraints:
+                if c.start_time <= t <= c.end_time:
+                    H = c.H[:, :-1]
+                    b = c.b
+                    e = c.H[:, -1]
+                    P = Polyhedron(H, b - e * t)
+                    polytopes.append(P)
+
+            # Compute intersection
+            if polytopes:
+                inter = polytopes[0]
+                for P in polytopes[1:]:
+                    inter = inter.intersect(P)
+
+                # Draw intersection
+                ax = inter.plot(ax, alpha=0.25)
+
+                # Save references
+                if len(ax.patches):
+                    prev_fill = ax.patches[-1]
+                # Save the last contour line added (the edge)
+                if len(ax.lines):
+                    prev_lines = [ax.lines[-1]]  # store as list
+
+            writer.grab_frame()
+
+    print(f"Saved animation to {filename}")
+
     
 
 
