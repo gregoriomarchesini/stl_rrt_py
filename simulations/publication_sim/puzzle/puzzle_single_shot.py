@@ -117,17 +117,7 @@ time_varying_constraints2, robustness_2, kappa_gain_2 = compute_polyhedral_const
                                                                          x_0          = x_0,
                                                                          plot_results = True)
 
-# plot the time varying constraints if you need
-# # for tvc in time_varying_constraints:
-# #     try :
-# #         tvc.plot2d()
-# #         print("start_time",tvc.start_time)
-# #         print("end_time",tvc.end_time)
-# #     except :
-# #         print("problem with plotting the constraint")
-# #         poly = tvc.to_polytope()
-# #         print(poly.is_open)
-# #         continue
+
 
 # ########################################################
 # # Create RRT solver
